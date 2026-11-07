@@ -45,20 +45,20 @@ jobs:
         run: |
           (cd apk && sha256sum app-debug.apk > SHA256SUMS.txt)
           cat > notes.md <<'NOTES'
-          富士窓カメラ v1.3.2（Android 10以上）
+          富士窓カメラ v1.4.0（Android 10以上）
 
           Assetsの **app-debug.apk** をダウンロードして端末で開いてください。
-          初回は「範囲設定」で電線・住宅・富士山全体と稜線の保護範囲を登録してください。
+          この窓専用の固定位置モードを追加しました。見本と同じ窓・同じズーム・縦3:4の画角なら、範囲指定をせずに加工できます。3本の電線に一致しない場合は加工を停止します。
 
-          縦画面を基本に、撮る・編集・富士日記を下部ナビで切り替えるUIへ刷新。紙のような背景と緑を基調に、富士日記は写真・EXIF撮影日時・ひと言メモを残せる日記帳になりました。元／加工写真は日記上で同じ記録にまとめます。撮影・写真読み込み、固定マスクの局所インペイント、住宅ぼかし、半透明ガイドにも対応。AIによる電線・住宅の自動認識は未搭載です。公開JPEGからGPS・元EXIFを削除し、撮影日時はアプリ内に保持します。JPEG保存時は再圧縮されます。
+          縦画面を基本に、撮る・編集・富士日記を下部ナビで切り替えるUIへ刷新。紙のような背景と緑を基調に、富士日記は写真・EXIF撮影日時・ひと言メモを残せる日記帳になりました。元／加工写真は日記上で同じ記録にまとめます。撮影・写真読み込み、固定マスクの局所インペイント、住宅ぼかし、半透明ガイドにも対応。AIによる一般的な物体認識は使いません。提供された3枚から定めた固定位置と軽い電線位置補正を使います。富士山に近い鉄塔・電線は残し、住宅は固定領域だけぼかします。公開JPEGからGPS・元EXIFを削除し、撮影日時はアプリ内に保持します。JPEG保存時は再圧縮されます。
 
           旧版でEXIF削除済みの写真は撮影日を復元できないため保存日時と明示します。
 
           GitHub Actionsのビルド・Lint・単体テスト・Android画像処理テスト・縦画面と日記メモのUIテストが成功したAPKです。実際の窓での撮影と仕上がりは実機で確認してください。
           CIのdebug署名はローカル版や別のCI実行と異なる場合があります。署名不一致で更新できない場合、旧アプリのアンインストールが必要です（範囲設定・ガイド・日記の撮影日時データは削除されます）。
           NOTES
-          if ! gh release view v1.3.2 >/dev/null 2>&1; then
-            gh release create v1.3.2 --target "$BUILD_SHA" --title '富士窓カメラ v1.3.2' --notes-file notes.md --draft
+          if ! gh release view v1.4.0 >/dev/null 2>&1; then
+            gh release create v1.4.0 --target "$BUILD_SHA" --title '富士窓カメラ v1.4.0' --notes-file notes.md --draft
           fi
-          gh release upload v1.3.2 apk/app-debug.apk apk/SHA256SUMS.txt screenshots/*.png --clobber
-          gh release edit v1.3.2 --draft=false --latest --notes-file notes.md
+          gh release upload v1.4.0 apk/app-debug.apk apk/SHA256SUMS.txt screenshots/*.png --clobber
+          gh release edit v1.4.0 --draft=false --latest --notes-file notes.md

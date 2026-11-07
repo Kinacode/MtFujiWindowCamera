@@ -37,6 +37,15 @@ public class PortraitUiTest {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();android.os.SystemClock.sleep(500);InstrumentationRegistry.getInstrumentation().waitForIdleSync();Bitmap image=InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();assertNotNull(image);
         Context c=InstrumentationRegistry.getInstrumentation().getTargetContext();ContentValues v=new ContentValues();v.put(MediaStore.Images.Media.DISPLAY_NAME,name+".png");v.put(MediaStore.Images.Media.MIME_TYPE,"image/png");v.put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/FujiWindowCameraTest/");Uri uri=c.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,v);assertNotNull(uri);try(OutputStream out=c.getContentResolver().openOutputStream(uri)){assertTrue(image.compress(Bitmap.CompressFormat.PNG,100,out));}image.recycle();
     }
+    @Test public void fixedModeProcessesWithoutAnyUserRegions()throws Exception{
+        Bitmap b=new FixedWindowTest().fixture(.018);
+        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
+            scenario.onActivity(a->{assertTrue(a.fixedWindow);a.original=b;a.photo.setImageBitmap(b);a.masks.regions.clear();a.calibrated=false;a.navigate(1);a.aligned.setChecked(true);a.process();});
+            final boolean[] done={false},ok={false};long deadline=android.os.SystemClock.uptimeMillis()+30000;
+            while(!done[0]&&android.os.SystemClock.uptimeMillis()<deadline){scenario.onActivity(a->{done[0]=!a.busy;ok[0]=a.result!=null&&a.masks.regions.isEmpty();});if(!done[0])android.os.SystemClock.sleep(100);}
+            assertTrue("processing succeeds without drawing regions",done[0]&&ok[0]);
+        }finally{b.recycle();}
+    }
     @Test public void portraitJournalMemoAndEditor()throws Exception{
         Context context=InstrumentationRegistry.getInstrumentation().getTargetContext();Bitmap image=fixture();Uri original=null,processed=null;
         try{
@@ -59,7 +68,7 @@ public class PortraitUiTest {
                 final boolean[] edited={false};long editUntil=android.os.SystemClock.uptimeMillis()+10000;
                 while(!edited[0]&&android.os.SystemClock.uptimeMillis()<editUntil){scenario.onActivity(a->edited[0]=a.page==1&&a.original!=null&&!a.busy);if(!edited[0])android.os.SystemClock.sleep(100);}
                 assertTrue("import opens portrait editor",edited[0]);
-                onView(withText("日記に保存")).check(matches(isDisplayed()));onView(withText("範囲を設定")).check(matches(isDisplayed()));screenshot("03-editor-portrait");
+                onView(withText("日記に保存")).check(matches(isDisplayed()));onView(withText("この窓プリセット")).check(matches(isDisplayed()));screenshot("03-editor-portrait");
             }
         }finally{
             if(original!=null){context.getContentResolver().delete(original,null,null);ShotDates.store(context).edit().remove(original.toString()).commit();}

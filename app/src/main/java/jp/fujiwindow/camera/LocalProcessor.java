@@ -31,6 +31,14 @@ public final class LocalProcessor {
             try { Imgproc.dilate(protect,guard,kernel); } finally { kernel.release(); }
             Core.bitwise_or(wire,house,combined); Core.bitwise_and(combined,guard,overlap);
             if(Core.countNonZero(overlap)>0) throw new IllegalArgumentException("加工範囲が富士山の保護範囲または周囲8pxと重なっています。範囲を修正してください");
+            return applyMasks(source,wire,house);
+        } finally { for(Mat m:new Mat[]{rgba,rgb,wire,house,protect,guard,overlap,combined,filled,blurred}) m.release(); }
+    }
+    static Bitmap applyMasks(Bitmap source,Mat wire,Mat house){
+        int w=source.getWidth(),h=source.getHeight();
+        Mat rgba=new Mat(),rgb=new Mat(),combined=new Mat(),filled=new Mat(),blurred=new Mat();
+        try{
+            Core.bitwise_or(wire,house,combined);
             Utils.bitmapToMat(source,rgba); Imgproc.cvtColor(rgba,rgb,Imgproc.COLOR_RGBA2RGB);
             if(Core.countNonZero(wire)>0) Photo.inpaint(rgb,wire,filled,3,Photo.INPAINT_TELEA); else rgb.copyTo(filled);
             if(Core.countNonZero(house)>0) {
@@ -44,8 +52,14 @@ public final class LocalProcessor {
             try { Utils.matToBitmap(filled,candidate);candidate.getPixels(changed,0,w,0,0,w,h); }
             finally { candidate.recycle(); }
             combined.get(0,0,mask);
-            for(int i=0;i<pixels.length;i++) if(mask[i]!=0) pixels[i]=changed[i];
+            byte[] alpha=new byte[w*h];house.get(0,0,alpha);
+            for(int i=0;i<pixels.length;i++) if(mask[i]!=0){
+                int blend=alpha[i]&255;
+                if(blend==0||blend==255)pixels[i]=changed[i];
+                else {int old=pixels[i],v=changed[i];int r=(((old>>16)&255)*(255-blend)+((v>>16)&255)*blend+127)/255;int g=(((old>>8)&255)*(255-blend)+((v>>8)&255)*blend+127)/255;int b=((old&255)*(255-blend)+(v&255)*blend+127)/255;pixels[i]=0xff000000|(r<<16)|(g<<8)|b;}
+            }
             return Bitmap.createBitmap(pixels,w,h,Bitmap.Config.ARGB_8888);
-        } finally { for(Mat m:new Mat[]{rgba,rgb,wire,house,protect,guard,overlap,combined,filled,blurred}) m.release(); }
+        }finally{for(Mat m:new Mat[]{rgba,rgb,combined,filled,blurred})m.release();}
     }
+
 }
