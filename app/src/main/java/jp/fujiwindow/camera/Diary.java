@@ -27,15 +27,17 @@ final class Diary {
         final ExecutorService images=Executors.newFixedThreadPool(2);
         final CancellationSignal cancel=new CancellationSignal();
         final ArrayList<Entry> all=new ArrayList<>(),visible=new ArrayList<>();
-        final TextView count; final LinearLayout empty;final ListView list;final BaseAdapter adapter;
+        final Button addPhotos;final TextView notice;final TextView count; final LinearLayout empty;final ListView list;final BaseAdapter adapter;
         boolean closed;int filter;long generation;
-        Screen(Activity a){
+        Screen(Activity a,Runnable importPhotos){
             activity=a;root=new LinearLayout(a);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Style.PAPER);Style.padding(root,16,0);
             TextView subtitle=Style.text(a,"同じ窓から見つけた、小さな季節。",13,Style.MUTED);Style.padding(subtitle,4,8);root.addView(subtitle);
+            addPhotos=Style.button(a,"＋ 過去の写真を登録",false);addPhotos.setContentDescription("過去の写真を選んで富士日記に登録");addPhotos.setOnClickListener(v->importPhotos.run());root.addView(addPhotos,new LinearLayout.LayoutParams(-1,Style.dp(a,48)));
+            notice=Style.text(a,"撮影日はEXIFから取得。複数枚まとめて登録できます。",11,Style.MUTED);Style.padding(notice,4,8);root.addView(notice);
             LinearLayout tabs=new LinearLayout(a);String[] labels={"日記","加工後","元写真"};Button[] chips=new Button[3];
             for(int i=0;i<3;i++){final int index=i;chips[i]=Style.button(a,labels[i],i==0);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,Style.dp(a,44),1);p.setMargins(3,0,3,0);tabs.addView(chips[i],p);chips[i].setOnClickListener(v->{filter=index;for(int k=0;k<3;k++){chips[k].setBackground(Style.shape(k==index?Style.TEAL:Style.WHITE,16,a));chips[k].setTextColor(k==index?Style.WHITE:Style.INK);}refresh();});}root.addView(tabs);
             count=Style.text(a,"日記をひらいています…",11,Style.MUTED);Style.padding(count,4,12);root.addView(count);
-            empty=new LinearLayout(a);empty.setOrientation(LinearLayout.VERTICAL);empty.setGravity(Gravity.CENTER);TextView symbol=Style.title(a,"△",76);empty.addView(symbol);TextView title=Style.title(a,"最初の一枚を、ここに。",22);empty.addView(title);TextView help=Style.text(a,"撮影や読み込んだ写真を保存すると、\n撮影日時と一緒に日記に並びます。",13,Style.MUTED);help.setGravity(Gravity.CENTER);Style.padding(help,12,16);empty.addView(help);root.addView(empty,new LinearLayout.LayoutParams(-1,0,1));
+            empty=new LinearLayout(a);empty.setOrientation(LinearLayout.VERTICAL);empty.setGravity(Gravity.CENTER);TextView symbol=Style.title(a,"△",76);empty.addView(symbol);TextView title=Style.title(a,"最初の一枚を、ここに。",22);empty.addView(title);TextView help=Style.text(a,"「過去の写真を登録」から、\n以前撮った富士山も日記に残せます。",13,Style.MUTED);help.setGravity(Gravity.CENTER);Style.padding(help,12,16);empty.addView(help);root.addView(empty,new LinearLayout.LayoutParams(-1,0,1));
             list=new ListView(a);list.setDivider(null);list.setCacheColorHint(Style.PAPER);list.setClipToPadding(false);list.setPadding(0,0,0,Style.dp(a,12));root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
             adapter=new BaseAdapter(){public int getCount(){return visible.size();}public Object getItem(int i){return visible.get(i);}public long getItemId(int i){return i;}
                 public View getView(int position,View convert,ViewGroup parent){
@@ -47,8 +49,8 @@ final class Diary {
                         Button write=Style.button(a,"日記を書く",false);LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(-1,Style.dp(a,44));wp.setMargins(0,Style.dp(a,8),0,0);paper.addView(write,wp);
                     }
                     Entry e=visible.get(position);LinearLayout paper=(LinearLayout)outer.getChildAt(0);
-                    ((TextView)paper.getChildAt(0)).setText(e.date.display.substring(0,10));
-                    ((TextView)paper.getChildAt(1)).setText(e.date.display.substring(11)+"  /  "+e.date.source+"  /  "+(e.processed()?"加工後":"元写真")+(activity.getSharedPreferences("image_edits",0).getBoolean("neural/"+e.uri,false)?" · AI加工":activity.getSharedPreferences("image_edits",0).getBoolean(e.uri.toString(),false)?" · 局所補完あり":""));
+                    ((TextView)paper.getChildAt(0)).setText((e.date.source.contains("撮影日時なし")?"撮影日不明":e.date.display.substring(0,10)));
+                    ((TextView)paper.getChildAt(1)).setText((e.date.source.contains("撮影日時なし")?e.date.display:e.date.display.substring(11))+"  /  "+e.date.source+"  /  "+(e.processed()?"加工後":"元写真")+(activity.getSharedPreferences("image_edits",0).getBoolean("neural/"+e.uri,false)?" · AI加工":activity.getSharedPreferences("image_edits",0).getBoolean(e.uri.toString(),false)?" · 局所補完あり":""));
                     ImageView image=(ImageView)paper.getChildAt(2);image.setImageDrawable(null);image.setTag(e.uri);image.setContentDescription("富士山の写真を拡大");image.setOnClickListener(v->preview(e));
                     TextView note=(TextView)paper.getChildAt(3);String saved=notes().getString(e.key(),"");note.setText(saved.isEmpty()?"今日の空、山の表情。\nこの一枚に、ことばを添えて。":saved);note.setTextColor(saved.isEmpty()?Style.MUTED:Style.INK);
                     ((Button)paper.getChildAt(4)).setText(saved.isEmpty()?"＋ 日記を書く":"日記を編集");paper.getChildAt(4).setOnClickListener(v->edit(e));
@@ -75,7 +77,7 @@ final class Diary {
         }
         void edit(Entry e){
             EditText input=new EditText(activity);input.setHint("空の色、雲の形、今日の気持ち…");input.setText(notes().getString(e.key(),""));input.setMinLines(4);input.setMaxLines(8);input.setGravity(Gravity.TOP);input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(2000)});Style.padding(input,20,16);
-            AlertDialog d=new AlertDialog.Builder(activity).setTitle(e.date.display.substring(0,10)+" の富士日記").setView(input).setPositiveButton("ことばを残す",null).setNegativeButton("戻る",null).create();d.setOnShowListener(x->d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(notes().edit().putString(e.key(),input.getText().toString()).commit()){refresh();d.dismiss();}else input.setError("保存できませんでした。もう一度お試しください。");}));d.show();
+            AlertDialog d=new AlertDialog.Builder(activity).setTitle((e.date.source.contains("撮影日時なし")?"撮影日不明":e.date.display.substring(0,10))+" の富士日記").setView(input).setPositiveButton("ことばを残す",null).setNegativeButton("戻る",null).create();d.setOnShowListener(x->d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(notes().edit().putString(e.key(),input.getText().toString()).commit()){refresh();d.dismiss();}else input.setError("保存できませんでした。もう一度お試しください。");}));d.show();
         }
         void preview(Entry e){
             ImageView full=new ImageView(activity);full.setScaleType(ImageView.ScaleType.FIT_CENTER);full.setLayoutParams(new ViewGroup.LayoutParams(-1,(int)(activity.getResources().getDisplayMetrics().heightPixels*.55f)));

@@ -29,6 +29,8 @@ public class MainActivity extends ComponentActivity {
     final ArrayList<Button> controls=new ArrayList<>();
     final androidx.activity.result.ActivityResultLauncher<String[]> photoPicker = registerForActivityResult(
         new androidx.activity.result.contract.ActivityResultContracts.OpenDocument(), uri -> {if(uri!=null) importPhoto(uri);});
+    final androidx.activity.result.ActivityResultLauncher<String[]> diaryPicker = registerForActivityResult(
+        new androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(), uris -> {if(!uris.isEmpty()) importDiaryPhotos(uris);});
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         buildScreen();
@@ -86,7 +88,7 @@ public class MainActivity extends ComponentActivity {
         if(target==1&&original==null){if(page==2)navigate(0);message("写真を撮るか、読み込んでから編集してください。");return;}
         windowGuide.setVisibility(target==0&&fixedWindow&&activeCamera!=null?View.VISIBLE:View.GONE);page=target;shutter.setText(original==null?"● 撮影する":"撮り直す");heading.setText(target==2?"富士日記":target==1?"編集":"FUJI WINDOW");
         workspace.setVisibility(target==2?View.GONE:View.VISIBLE);
-        if(target==2){if(diary==null){diary=new Diary.Screen(this);content.addView(diary.root,new FrameLayout.LayoutParams(-1,-1));}diary.root.setVisibility(View.VISIBLE);diary.reload();}
+        if(target==2){if(diary==null){diary=new Diary.Screen(this,this::chooseDiaryPhotos);content.addView(diary.root,new FrameLayout.LayoutParams(-1,-1));}diary.root.setVisibility(View.VISIBLE);diary.reload();}
         else if(diary!=null)diary.root.setVisibility(View.GONE);
         cameraPanel.setVisibility(target==0?View.VISIBLE:View.GONE);editPanel.setVisibility(target==1?View.VISIBLE:View.GONE);editorTools.setVisibility(target==1?View.VISIBLE:View.GONE);
         photo.setVisibility(target==1?View.VISIBLE:View.GONE);masks.setVisibility(target==1?View.VISIBLE:View.GONE);guide.setVisibility(target==0?View.VISIBLE:View.GONE);
@@ -158,6 +160,22 @@ public class MainActivity extends ComponentActivity {
             finally{if(temp!=null)temp.delete();}
         });
     }
+    void chooseDiaryPhotos(){if(!busy)diaryPicker.launch(new String[]{"image/*"});}
+    void importDiaryPhotos(List<Uri> uris){
+        if(busy||uris.isEmpty())return;
+        navigate(2);lock(true);if(diary!=null){diary.addPhotos.setEnabled(false);diary.notice.setText("過去の写真を登録中…");}
+        worker.execute(()->{
+            int added=0,existing=0,missing=0,failed=0;String error="";
+            for(int i=0;i<uris.size();i++){
+                if(Thread.currentThread().isInterrupted())break;
+                final int progress=i+1;runOnUiThread(()->{if(!isDestroyed()&&diary!=null)diary.notice.setText("写真を登録中  "+progress+" / "+uris.size());});
+                try{DiaryImporter.Result entry=DiaryImporter.add(this,uris.get(i));if(entry.added)added++;else existing++;if(entry.date==null)missing++;}
+                catch(Exception|OutOfMemoryError e){failed++;if(error.isEmpty())error=e.getMessage()==null?"画像を読み込めません":e.getMessage();}
+            }
+            final String summary=added+"枚を登録"+(existing>0?" · 登録済み "+existing+"枚":"")+(missing>0?" · EXIF撮影日なし "+missing+"枚":"")+(failed>0?" · 失敗 "+failed+"枚（"+error+"）":"");
+            runOnUiThread(()->{if(isDestroyed())return;lock(false);if(diary!=null){diary.addPhotos.setEnabled(true);diary.notice.setText(summary);diary.reload();}message(summary);});
+        });
+    }
     static Bitmap decodeUpright(File file)throws IOException {
         BitmapFactory.Options opts=new BitmapFactory.Options();opts.inJustDecodeBounds=true;BitmapFactory.decodeFile(file.getPath(),opts);
         if(opts.outWidth<=0||opts.outHeight<=0)throw new IOException("対応していない画像です。JPEG・PNG等を選んでください");
@@ -226,19 +244,7 @@ public class MainActivity extends ComponentActivity {
         catch(Exception|OutOfMemoryError e){runOnUiThread(()->{lock(false);message("元画像の保存失敗（再試行できます）: "+e.getMessage());});}});
     }
     void publish(Bitmap b,String folder,String name)throws IOException {
-        File tmp=File.createTempFile("export-",".jpg",getCacheDir());Uri uri=null;
-        try {
-            // Fresh encoding never copies source EXIF, GPS, XMP, thumbnails or device metadata.
-            try(FileOutputStream out=new FileOutputStream(tmp)){if(!b.compress(Bitmap.CompressFormat.JPEG,98,out))throw new IOException("JPEG変換失敗");}
-            ExifInterface exif=new ExifInterface(tmp);
-            if(exif.getLatLong()!=null||exif.getAttribute(ExifInterface.TAG_GPS_LATITUDE)!=null||exif.getAttribute(ExifInterface.TAG_MAKE)!=null)throw new IOException("メタデータ検証失敗");
-            ContentValues v=new ContentValues();v.put(MediaStore.Images.Media.DISPLAY_NAME,name);v.put(MediaStore.Images.Media.MIME_TYPE,"image/jpeg");v.put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/FujiWindowCamera/"+folder);v.put(MediaStore.Images.Media.IS_PENDING,1);
-            uri=getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,v);if(uri==null)throw new IOException("保存先を作成できません");
-            try(InputStream in=new FileInputStream(tmp);OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("保存先を開けません");byte[] buffer=new byte[65536];int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);}
-            try{ShotDates.put(this,uri,shotDate);}catch(Exception e){throw new IOException("日記日時の保存失敗",e);}
-            if(!getSharedPreferences("image_edits",0).edit().putBoolean(uri.toString(),b==result&&completedMountain).putBoolean("neural/"+uri,b==result&&neuralResult).commit())throw new IOException("補完記録の保存失敗");
-            ContentValues ready=new ContentValues();ready.put(MediaStore.Images.Media.IS_PENDING,0);if(getContentResolver().update(uri,ready,null,null)!=1)throw new IOException("保存確定失敗");
-        }catch(IOException|RuntimeException e){if(uri!=null){getContentResolver().delete(uri,null,null);ShotDates.store(this).edit().remove(uri.toString()).apply();getSharedPreferences("image_edits",0).edit().remove(uri.toString()).remove("neural/"+uri).apply();}throw e;}finally{tmp.delete();}
+        PhotoStore.publish(this,b,folder,name,shotDate,b==result&&completedMountain,b==result&&neuralResult);
     }
     void retake(){
         if(original==null)return;
