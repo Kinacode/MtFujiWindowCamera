@@ -13,9 +13,9 @@ final class FixedWindow {
     static double wireY(int line,double x){return WIRES[line]+.032*x-.068*x*x;}
     static final double[][] MOUNTAIN={{.12,.855},{.24,.825},{.31,.785},{.39,.738},{.45,.705},{.60,.705},{.68,.760},{.78,.805},{.89,.825},{.96,.855}};
     static final class Plan implements AutoCloseable {
-        final Mat wire,house,protect; final double shift,tilt;
-        Plan(Mat w,Mat h,Mat p,double s,double t){wire=w;house=h;protect=p;shift=s;tilt=t;}
-        public void close(){wire.release();house.release();protect.release();}
+        final Mat wire,house,protect,repair; final double shift,tilt;
+        Plan(Mat w,Mat h,Mat p,Mat r,double s,double t){wire=w;house=h;protect=p;repair=r;shift=s;tilt=t;}
+        public void close(){wire.release();house.release();protect.release();repair.release();}
     }
     static int luminance(int pixel){return (77*((pixel>>16)&255)+150*((pixel>>8)&255)+29*(pixel&255))>>8;}
     static int at(byte[] grey,int w,int h,int x,int y){x=Math.max(0,Math.min(w-1,x));y=Math.max(0,Math.min(h-1,y));return grey[y*w+x]&255;}
@@ -48,6 +48,7 @@ final class FixedWindow {
             if(found<52)throw new IllegalArgumentException("見本の電線3本に十分一致しないため加工を停止しました。窓・ズーム・画角を見本に合わせてください。暗すぎる写真も処理を見送ります。");
         }
         Mat wire=Mat.zeros(h,w,CvType.CV_8UC1),house=Mat.zeros(h,w,CvType.CV_8UC1),protect=Mat.zeros(h,w,CvType.CV_8UC1);
+        Mat repair=Mat.zeros(h,w,CvType.CV_8UC1);
         Mat gray=new Mat(h,w,CvType.CV_8UC1),edges=new Mat(),lines=new Mat(),median=new Mat(),detail=new Mat(),tower=Mat.zeros(h,w,CvType.CV_8UC1),guard=new Mat(),inverse=new Mat(),distance=new Mat();
         boolean success=false;
         try{
@@ -78,20 +79,24 @@ final class FixedWindow {
             polygon(tower,new double[][]{{.327,.680},{.344,.680},{.362,.766},{.304,.766}},w,h,shift);
             Imgproc.medianBlur(gray,median,11);Core.absdiff(gray,median,detail);Imgproc.threshold(detail,detail,8,255,Imgproc.THRESH_BINARY);Core.bitwise_and(detail,tower,detail);
             Mat small=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,new Size(3,3));try{Imgproc.dilate(detail,detail,small);}finally{small.release();}Core.bitwise_and(detail,tower,detail);Core.bitwise_or(wire,detail,wire);Mat lowerWire=wire.rowRange((int)(h*(completeMountain?.89:.76)),h);try{lowerWire.setTo(new Scalar(0));}finally{lowerWire.release();}
-            polygon(house,new double[][]{{0,.812},{.10,.812},{.24,.837},{.30,.848},{.30,1},{0,1}},w,h,shift);
-            polygon(house,new double[][]{{.23,.842},{.40,.815},{.66,.815},{.72,.865},{.72,1},{.23,1}},w,h,shift);
-            polygon(house,new double[][]{{.94,.842},{1,.822},{1,1},{.94,1}},w,h,shift);
+            // User-specified continuous foreground, including the tree and both image edges.
+            // Foreground parallax differs from the upper wires; use a damped bounded correction.
+            double foregroundShift=Math.max(-.012,Math.min(.018,shift*.30));
+            polygon(house,new double[][]{{0,.820},{.10,.820},{.24,.835},{.32,.827},{.41,.844},{.53,.840},{.65,.850},{.70,.825},{.75,.780},{.80,.758},{.85,.778},{.865,.830},{.93,.838},{1,.790},{1,1},{0,1}},w,h,foregroundShift);
             Mat kernel=Imgproc.getStructuringElement(Imgproc.MORPH_RECT,new Size(17,17));try{Imgproc.dilate(protect,guard,kernel);}finally{kernel.release();}
-            Core.bitwise_not(guard,inverse);Core.bitwise_and(house,inverse,house);
+            Core.bitwise_not(guard,inverse);
             if(completeMountain)addCompletion(gray,wire,w,h,shift);
             else Core.bitwise_and(wire,inverse,wire);
+            // Returned protection describes the mountain above the explicitly authorized foreground.
+            Core.bitwise_not(house,inverse);Core.bitwise_and(protect,inverse,protect);
+            buildRepairMap(repair,wire,w,h,shift,completeMountain);
             // Feather strictly inward: outside the building polygons remains bit-for-bit untouched before JPEG encoding.
             Imgproc.distanceTransform(house,distance,Imgproc.DIST_L2,3);distance.convertTo(house,CvType.CV_8UC1,255.0/Math.max(5,h*.008));
             if(Core.countNonZero(wire)>w*h*.22)throw new IllegalArgumentException("除去範囲が想定より大きいため加工を停止しました。");
-            success=true;return new Plan(wire,house,protect,shift,tilt);
+            success=true;return new Plan(wire,house,protect,repair,shift,tilt);
         }finally{
             for(Mat m:new Mat[]{gray,edges,lines,median,detail,tower,guard,inverse,distance})m.release();
-            if(!success){wire.release();house.release();protect.release();}
+            if(!success){wire.release();house.release();protect.release();repair.release();}
         }
     }
     static double distance(double x,double y,double[][] path,double shift){double best=10;for(int i=1;i<path.length;i++){double ax=path[i-1][0],ay=path[i-1][1]+shift,bx=path[i][0],by=path[i][1]+shift,dx=bx-ax,dy=by-ay;double t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)));best=Math.min(best,Math.hypot(x-ax-t*dx,y-ay-t*dy));}return best;}
@@ -133,7 +138,10 @@ final class FixedWindow {
             Imgproc.Canny(gray,edges,5,15);
             Mat upper=edges.rowRange(0,(int)(h*.70)),lower=edges.rowRange((int)(h*.85),h),right=edges.colRange((int)(w*.39),w);
             try{upper.setTo(new Scalar(0));lower.setTo(new Scalar(0));right.setTo(new Scalar(0));}finally{upper.release();lower.release();right.release();}
-            Imgproc.HoughLinesP(edges,lines,1,Math.PI/720,12,w*.10,w*.025);
+            byte[] ridgePixels=new byte[w*h];
+            for(int y=(int)(h*.70);y<(int)(h*.85);y++)for(int x=0;x<(int)(w*.39);x++)if(ridge(g,w,h,x,y,r)>=2)ridgePixels[y*w+x]=(byte)255;
+            Mat faint=new Mat(h,w,CvType.CV_8UC1);try{faint.put(0,0,ridgePixels);Core.bitwise_or(edges,faint,edges);}finally{faint.release();}
+            Imgproc.HoughLinesP(edges,lines,1,Math.PI/720,20,w*.12,w*.04);
             for(int i=0;i<lines.rows();i++){
                 double[] a=lines.get(i,0);double dx=a[2]-a[0],dy=a[3]-a[1];
                 if(Math.abs(dy)>Math.abs(dx)*.12)continue;
@@ -142,7 +150,10 @@ final class FixedWindow {
                     for(int off=-2;off<=2;off++)score=Math.max(score,ridge(g,w,h,x,y+off,r));
                     if(score>=2)good++;
                 }
-                if(good>=16)Imgproc.line(mask,new Point(a[0],a[1]),new Point(a[2],a[3]),new Scalar(255),Math.max(3,(int)Math.round(h*.008)));
+                if(good>=14){
+                    double left=Math.max(0,Math.min(a[0],a[2])-w*.04),rightX=Math.min(w*.39,Math.max(a[0],a[2])+w*.04),slope=dy/dx;
+                    Imgproc.line(mask,new Point(left,a[1]+(left-a[0])*slope),new Point(rightX,a[1]+(rightX-a[0])*slope),new Scalar(255),Math.max(4,(int)Math.round(h*.010)));
+                }
             }
             detector.detect(gray,segments);
             for(int i=0;i<segments.rows();i++){
@@ -150,8 +161,27 @@ final class FixedWindow {
                 if(Math.min(a[0],a[2])<w*.83||Math.abs(dy)>Math.abs(dx)*.15||Math.abs(dx)<w*.055||y<.60||y>.69+shift)continue;
                 Imgproc.line(mask,new Point(a[0],a[1]),new Point(a[2],a[3]),new Scalar(255),Math.max(9,(int)Math.round(h*.023)));
             }
+            double barY=.647+Math.max(-.012,Math.min(.024,shift*.5));
+            polygon(mask,new double[][]{{.875,barY-.023},{1,barY-.030},{1,barY+.018},{.875,barY+.025}},w,h,0);
             if(shift>.035)polygon(mask,new double[][]{{.95,.228},{1,.228},{1,.43},{.95,.43}},w,h,0);
         }finally{edges.release();lines.release();segments.release();detector.clear();}
+    }
+    /** 1: vertical interpolation for residual sky wires/crossbar, 2: horizontal mountain texture.
+     * These local structural constraints prevent MI-GAN from inventing small objects. */
+    static void buildRepairMap(Mat repair,Mat wire,int w,int h,double shift,boolean completeMountain){
+        Mat sky=Mat.zeros(h,w,CvType.CV_8UC1),mountain=Mat.zeros(h,w,CvType.CV_8UC1);
+        try{
+            polygon(sky,new double[][]{{0,.70},{.39,.70},{.39,.85},{0,.85}},w,h,0);
+            double barY=.647+Math.max(-.012,Math.min(.024,shift*.5));
+            polygon(sky,new double[][]{{.87,barY-.033},{1,barY-.040},{1,barY+.028},{.87,barY+.035}},w,h,0);
+            Core.bitwise_and(sky,wire,sky);repair.setTo(new Scalar(1),sky);
+            if(completeMountain){
+                double dy=Math.max(-.012,Math.min(.018,shift*.30));
+                // Strictly inside the mountain, below the summit/ridge buffer. No silhouette drawing.
+                polygon(mountain,new double[][]{{.39,.804},{.445,.770},{.555,.770},{.65,.818},{.65,.842},{.39,.842}},w,h,dy);
+                Core.bitwise_and(mountain,wire,mountain);repair.setTo(new Scalar(2),mountain);
+            }
+        }finally{sky.release();mountain.release();}
     }
     /** Fixed equipment corridors only. Inferred pixels, not recovery of the hidden original mountain. */
     static void addCompletion(Mat gray,Mat wire,int w,int h,double shift){

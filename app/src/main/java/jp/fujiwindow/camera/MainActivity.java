@@ -225,7 +225,7 @@ public class MainActivity extends ComponentActivity {
     Bitmap processWithEngine(boolean preset,boolean restore,java.util.List<MaskView.Region> regions)throws Exception{
         if(!preset)return LocalProcessor.process(original,regions);
         try(FixedWindow.Plan plan=FixedWindow.plan(original,restore);NeuralInpainter engine=new NeuralInpainter(this)){
-            return engine.process(original,plan.wire,plan.house,(done,total)->runOnUiThread(()->{if(!isDestroyed()&&!cancelAi)message("AI加工 "+done+" / "+total+"  ·  端末内で処理中");}),()->cancelAi);
+            return engine.process(original,plan.wire,plan.house,plan.repair,(done,total)->runOnUiThread(()->{if(!isDestroyed()&&!cancelAi)message("AI加工 "+done+" / "+total+"  ·  端末内で処理中");}),()->cancelAi);
         }
     }
     void compare(){if(original==null)return;showResult=!showResult&&result!=null;photo.setImageBitmap(showResult?result:original);masks.overlays=!showResult&&!fixedWindow;masks.invalidate();message(showResult?(completedMountain?"加工後（山の重なりを推定補完）":"加工後プレビュー"):fixedWindow?"元写真。空の色と、補完した山肌や輪郭を比較してください。":"元画像（範囲表示）。保護範囲を確認してください。");}

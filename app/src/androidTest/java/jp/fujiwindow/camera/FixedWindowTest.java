@@ -50,6 +50,19 @@ public class FixedWindowTest {
             assertEquals("clear summit stays unmasked",0,p.wire.get(710,370)[0],0);
         }finally{b.recycle();}
     }
+    @Test public void foregroundBlurIsContinuousAcrossBuildingsTreeAndBothEdges(){
+        Bitmap b=fixture(0);
+        try(FixedWindow.Plan p=FixedWindow.plan(b,true)){
+            for(double x:new double[]{0,.1,.3,.5,.7,.8,.9,.999}){
+                assertTrue("entire lower foreground",p.house.get((int)(960*.95),(int)(719*x))[0]>250);
+            }
+            assertTrue("tree included",p.house.get((int)(960*.81),(int)(720*.80))[0]>200);
+            assertEquals("summit excluded",0,p.house.get(710,370)[0],0);
+            assertEquals("clear upper sky excluded",0,p.house.get(600,100)[0],0);
+            assertEquals("mountain artifact uses horizontal structure",2,p.repair.get((int)(960*.80),(int)(720*.51))[0],0);
+            assertEquals("right stub uses vertical structure",1,p.repair.get((int)(960*.647),(int)(720*.94))[0],0);
+        }finally{b.recycle();}
+    }
     @Test public void emptySkyIsRejected(){Bitmap b=Bitmap.createBitmap(720,960,Bitmap.Config.ARGB_8888);b.eraseColor(Color.BLUE);try{FixedWindow.plan(b);fail("must reject absent wires");}catch(IllegalArgumentException expected){}finally{b.recycle();}}
     @Test public void largeShiftIsRejected(){Bitmap b=fixture(.09);try{FixedWindow.plan(b);fail("must reject large camera displacement");}catch(IllegalArgumentException expected){}finally{b.recycle();}}
     @Test public void broadCloudBandsAreNotWires(){Bitmap b=Bitmap.createBitmap(720,960,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);c.drawColor(Color.LTGRAY);Paint p=new Paint();p.setColor(Color.DKGRAY);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(42);for(int k=0;k<3;k++){Path path=new Path();for(int x=0;x<720;x++){float y=(float)(FixedWindow.wireY(k,x/719.0)*960);if(x==0)path.moveTo(x,y);else path.lineTo(x,y);}c.drawPath(path,p);}try{FixedWindow.plan(b);fail("broad clouds must not be treated as thin wires");}catch(IllegalArgumentException expected){}finally{b.recycle();}}

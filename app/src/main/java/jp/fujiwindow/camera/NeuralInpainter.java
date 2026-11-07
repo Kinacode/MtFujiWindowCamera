@@ -47,6 +47,9 @@ final class NeuralInpainter implements AutoCloseable {
     static boolean hasMask(byte[] mask,int w,int x,int y,int tw,int th){for(int yy=y;yy<y+th;yy++)for(int xx=x;xx<x+tw;xx++)if(mask[yy*w+xx]!=0)return true;return false;}
     Bitmap process(Bitmap original,Mat wire,Mat house,Progress progress)throws Exception {return process(original,wire,house,progress,()->false);}
     Bitmap process(Bitmap original,Mat wire,Mat house,Progress progress,java.util.function.BooleanSupplier cancel)throws Exception {
+        return process(original,wire,house,null,progress,cancel);
+    }
+    Bitmap process(Bitmap original,Mat wire,Mat house,Mat repair,Progress progress,java.util.function.BooleanSupplier cancel)throws Exception {
         int w=original.getWidth(),h=original.getHeight();
         int[] source=new int[w*h],output=new int[w*h],weights=new int[w*h];byte[] removal=new byte[w*h];
         original.getPixels(source,0,w,0,0,w,h);System.arraycopy(source,0,output,0,source.length);wire.get(0,0,removal);
@@ -82,6 +85,8 @@ final class NeuralInpainter implements AutoCloseable {
             }
             if(progress!=null)progress.update(++done,jobs.size());
         }
+        if(cancel.getAsBoolean()||Thread.currentThread().isInterrupted())throw new CancellationException("AI処理を中止しました");
+        if(repair!=null){byte[] directions=new byte[w*h];repair.get(0,0,directions);StructureRepair.apply(source,output,removal,directions,w,h);}
         if(cancel.getAsBoolean()||Thread.currentThread().isInterrupted())throw new CancellationException("AI処理を中止しました");
         Bitmap filled=Bitmap.createBitmap(output,w,h,Bitmap.Config.ARGB_8888);Mat empty=Mat.zeros(h,w,CvType.CV_8UC1);
         try{return LocalProcessor.applyMasks(filled,empty,house);}finally{empty.release();filled.recycle();}

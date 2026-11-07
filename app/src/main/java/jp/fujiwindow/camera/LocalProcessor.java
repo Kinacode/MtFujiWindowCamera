@@ -42,7 +42,8 @@ public final class LocalProcessor {
             Utils.bitmapToMat(source,rgba); Imgproc.cvtColor(rgba,rgb,Imgproc.COLOR_RGBA2RGB);
             if(Core.countNonZero(wire)>0) Photo.inpaint(rgb,wire,filled,3,Photo.INPAINT_TELEA); else rgb.copyTo(filled);
             if(Core.countNonZero(house)>0) {
-                Imgproc.GaussianBlur(filled,blurred,new Size(61,61),16);
+                double sigma=Math.max(2,h*.0065);int size=((int)Math.ceil(sigma*6))|1;
+                Imgproc.GaussianBlur(filled,blurred,new Size(size,size),sigma);
                 blurred.copyTo(filled,house);
             }
             // Compose in integer ARGB: outside the union remains exactly the decoded original.
