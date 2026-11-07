@@ -55,7 +55,10 @@ public class PortraitUiTest {
                 final boolean[] thumbnail={false};long deadline=android.os.SystemClock.uptimeMillis()+10000;
                 while(!thumbnail[0]&&android.os.SystemClock.uptimeMillis()<deadline){scenario.onActivity(a->{android.view.View row=a.diary.list.getChildAt(0);if(row instanceof android.widget.LinearLayout){android.widget.LinearLayout paper=(android.widget.LinearLayout)((android.widget.LinearLayout)row).getChildAt(0);thumbnail[0]=((android.widget.ImageView)paper.getChildAt(2)).getDrawable()!=null;}});if(!thumbnail[0])android.os.SystemClock.sleep(100);}
                 assertTrue("journal thumbnail loaded",thumbnail[0]);screenshot("02-fuji-journal");
-                scenario.onActivity(a->{a.original=Bitmap.createBitmap(image);a.photo.setImageBitmap(a.original);a.masks.aspect=4f/3f;a.navigate(1);});
+                final Uri selected=processed;scenario.onActivity(a->a.importPhoto(selected));
+                final boolean[] edited={false};long editUntil=android.os.SystemClock.uptimeMillis()+10000;
+                while(!edited[0]&&android.os.SystemClock.uptimeMillis()<editUntil){scenario.onActivity(a->edited[0]=a.page==1&&a.original!=null&&!a.busy);if(!edited[0])android.os.SystemClock.sleep(100);}
+                assertTrue("import opens portrait editor",edited[0]);
                 onView(withText("日記に保存")).check(matches(isDisplayed()));onView(withText("範囲を設定")).check(matches(isDisplayed()));screenshot("03-editor-portrait");
             }
         }finally{

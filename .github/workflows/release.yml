@@ -45,7 +45,7 @@ jobs:
         run: |
           (cd apk && sha256sum app-debug.apk > SHA256SUMS.txt)
           cat > notes.md <<'NOTES'
-          富士窓カメラ v1.3.1（Android 10以上）
+          富士窓カメラ v1.3.2（Android 10以上）
 
           Assetsの **app-debug.apk** をダウンロードして端末で開いてください。
           初回は「範囲設定」で電線・住宅・富士山全体と稜線の保護範囲を登録してください。
@@ -57,8 +57,8 @@ jobs:
           GitHub Actionsのビルド・Lint・単体テスト・Android画像処理テスト・縦画面と日記メモのUIテストが成功したAPKです。実際の窓での撮影と仕上がりは実機で確認してください。
           CIのdebug署名はローカル版や別のCI実行と異なる場合があります。署名不一致で更新できない場合、旧アプリのアンインストールが必要です（範囲設定・ガイド・日記の撮影日時データは削除されます）。
           NOTES
-          if ! gh release view v1.3.1 >/dev/null 2>&1; then
-            gh release create v1.3.1 --target "$BUILD_SHA" --title '富士窓カメラ v1.3.1' --notes-file notes.md --draft
+          if ! gh release view v1.3.2 >/dev/null 2>&1; then
+            gh release create v1.3.2 --target "$BUILD_SHA" --title '富士窓カメラ v1.3.2' --notes-file notes.md --draft
           fi
-          gh release upload v1.3.1 apk/app-debug.apk apk/SHA256SUMS.txt screenshots/*.png --clobber
-          gh release edit v1.3.1 --draft=false --latest --notes-file notes.md
+          gh release upload v1.3.2 apk/app-debug.apk apk/SHA256SUMS.txt screenshots/*.png --clobber
+          gh release edit v1.3.2 --draft=false --latest --notes-file notes.md
