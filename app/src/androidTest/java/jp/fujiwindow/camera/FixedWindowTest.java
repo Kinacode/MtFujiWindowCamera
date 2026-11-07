@@ -57,7 +57,11 @@ public class FixedWindowTest {
                 assertTrue("entire lower foreground",p.house.get((int)(960*.95),(int)(719*x))[0]>250);
             }
             assertEquals("tree excluded",0,p.house.get((int)(960*.81),(int)(720*.80))[0],0);
-            assertTrue("roof contour has a gentle inward ramp",p.house.get((int)(960*.824),(int)(720*.05))[0]<60);
+            int roofX=(int)(720*.05),first=0;
+            while(first<960&&p.house.get(first,roofX)[0]==0)first++;
+            assertTrue("corrected boundary stays in foreground corridor",first>960*.79&&first<960*.87);
+            assertTrue("first affected row has a gentle alpha",p.house.get(first,roofX)[0]<30);
+            assertTrue("blur increases inward",p.house.get(Math.min(959,first+30),roofX)[0]>200);
             assertEquals("summit excluded",0,p.house.get(710,370)[0],0);
             assertEquals("clear upper sky excluded",0,p.house.get(600,100)[0],0);
             assertEquals("mountain equipment uses local texture repair",2,p.repair.get((int)(960*.80),(int)(720*.51))[0],0);
