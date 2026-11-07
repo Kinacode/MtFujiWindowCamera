@@ -1,14 +1,10 @@
-# v1.2 検証結果
+# v1.3 検証結果
 
-EXIF DateTimeOriginalを削除前に取得し、撮影日時をアプリ専用のdiary_datesに保存します。元画像・加工画像で日時を共有し、日記を撮影日時順に表示します。GPS等の公開JPEGメタデータ削除は維持します。過去版でEXIF削除済みの画像は保存日時であると明示して表示します。
+縦持ちの撮影・編集UIと、EXIF撮影日時／写真／ひと言メモの富士日記を実装。
+画像加工の方式や富士山の保護条件は変更していません。AI自動認識は未搭載です。
 
-- assembleDebug：成功
-- lintDebug：成功（エラー0、警告9）
-- testDebugUnitTest：成功（日時処理4テスト、失敗0）
-- apksigner verify / zipalign：成功
-- versionCode 3 / versionName 1.2
-- 旧版と署名証明書SHA-256一致。上書き更新可能。
-
-テストは日時の時差変換・元の現地日時表示・不正日付拒否・時差なし・保存日フォールバックの表示を検証しています。今回の実機UI操作およびAndroid計装テストは未実施です。過去版の結果はvalidationのバージョン別レポートを参照してください。
-
-ソースはKinacode/MtFujiWindowCameraへ反映。ローカルで検証済みのv1.2 APKをGitHub Releasesへ添付します。
+- ローカル assembleDebug / lintDebug / testDebugUnitTest / assembleDebugAndroidTest：成功
+- GitHub ActionsでAndroid上の既存画像処理テスト、および縦画面・日記の元／加工グループ化・メモ保存のUIテストを実行します。
+- UIテストは撮影・日記・編集画面のPNGを出力します。画面内の写真は明記した合成テスト画像で、実景写真ではありません。
+- 実際の窓での撮影と加工結果の見た目は実機確認が必要です。
+- CIの署名鍵が以前のAPKと異なる場合は上書きできません。アンインストールではアプリ内の日時・ガイド・範囲設定・メモが消えるため注意してください。

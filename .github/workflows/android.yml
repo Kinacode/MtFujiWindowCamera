@@ -43,4 +43,12 @@ jobs:
         with:
           api-level: 29
           arch: x86_64
-          script: ./gradlew connectedDebugAndroidTest
+          script: |
+            ./gradlew connectedDebugAndroidTest
+            adb pull /sdcard/Android/data/jp.fujiwindow.camera/files/ui-screenshots ui-screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FujiWindowCamera-ui
+          path: ui-screenshots
+          if-no-files-found: warn

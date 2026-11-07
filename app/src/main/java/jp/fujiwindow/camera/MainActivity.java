@@ -31,30 +31,64 @@ public class MainActivity extends ComponentActivity {
         new androidx.activity.result.contract.ActivityResultContracts.OpenDocument(), uri -> {if(uri!=null) importPhoto(uri);});
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);root.setPadding(8,8,8,8);root.setBackgroundColor(Color.rgb(18,25,32));
-        status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextSize(14);root.addView(status);
-        FrameLayout frame=new FrameLayout(this);root.addView(frame,new LinearLayout.LayoutParams(-1,0,1));
-        camera=new PreviewView(this);camera.setScaleType(PreviewView.ScaleType.FIT_CENTER);frame.addView(camera,new FrameLayout.LayoutParams(-1,-1));
-        guide=new ImageView(this);guide.setScaleType(ImageView.ScaleType.FIT_CENTER);guide.setAlpha(.28f);frame.addView(guide,new FrameLayout.LayoutParams(-1,-1));
-        photo=new ImageView(this);photo.setScaleType(ImageView.ScaleType.FIT_CENTER);photo.setVisibility(View.GONE);frame.addView(photo,new FrameLayout.LayoutParams(-1,-1));
-        masks=new MaskView(this);frame.addView(masks,new FrameLayout.LayoutParams(-1,-1));
-        try { String s=getPreferences(0).getString("masks",null); if(s!=null) {masks.decode(s);calibrated=true;} }catch(Exception e){calibrated=false;}
+        buildScreen();
+        try { String saved=getPreferences(0).getString("masks",null);if(saved!=null){masks.decode(saved);calibrated=true;} }catch(Exception ignored){}
         File gf=new File(getFilesDir(),"guide.jpg");if(gf.exists())guide.setImageBitmap(BitmapFactory.decodeFile(gf.getPath()));
-        LinearLayout options=new LinearLayout(this);
-        aligned=new CheckBox(this);aligned.setText("ガイドと山・稜線の位置を確認済み");aligned.setTextColor(Color.WHITE);options.addView(aligned);
-        keepOriginal=new CheckBox(this);keepOriginal.setText("元画像も別保存（位置情報なし）");keepOriginal.setTextColor(Color.WHITE);keepOriginal.setChecked(true);options.addView(keepOriginal);root.addView(options);
-        HorizontalScrollView scroll=new HorizontalScrollView(this);actions=new LinearLayout(this);scroll.addView(actions);root.addView(scroll);
-        button("写真を読み込む",this::choosePhoto);button("富士日記",()->Diary.show(this));button("撮影",this::takePhoto);button("範囲設定",this::editMasks);button("加工実行",this::process);button("元／加工 比較",this::compare);button("保存",this::save);button("元画像のみ保存",this::saveOriginal);button("再撮影",this::retake);
-        setContentView(root);
-        // Respect system bars, including Android 15 edge-to-edge enforcement.
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root,(v,insets)->{ androidx.core.graphics.Insets i=insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars());v.setPadding(i.left+8,i.top+8,i.right+8,i.bottom+8);return insets;});
-        message("富士窓カメラ：初回は撮影後に電線・住宅・富士山の保護範囲を登録");
-        if(checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED) startCamera();else message("写真を読み込む、または撮影を選んでください。撮影時のみカメラを許可します");
+        navigate(0);
+        message("窓の向こうの、今日を残そう。写真の読み込みからも始められます。");
         // Pending private capture is never overwritten by processing; stale temporary files are removed on restart.
         File[] old=getCacheDir().listFiles((d,n)->n.startsWith("capture-")||n.startsWith("export-"));if(old!=null)for(File f:old)f.delete();
     }
-    void button(String label,Runnable action) { Button b=new Button(this);b.setText(label);b.setOnClickListener(v->{if(!busy)action.run();});actions.addView(b);controls.add(b); }
-    void message(String text){ status.setText(text); }
+    LinearLayout cameraPanel,editPanel,workspace;FrameLayout content,frame;TextView heading,kicker;Button shutter;
+    Button[] navigation=new Button[3];int page=0;Diary.Screen diary;
+    void buildScreen(){
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Style.PAPER);
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);Style.padding(top,22,12);
+        LinearLayout brand=new LinearLayout(this);brand.setOrientation(LinearLayout.VERTICAL);
+        brand.addView(Style.text(this,"FUJI WINDOW CAMERA",10,Style.MUTED));heading=Style.title(this,"富士窓カメラ",25);brand.addView(heading);
+        top.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
+        Button menu=Style.button(this,"•••",false);menu.setContentDescription("その他の操作");menu.setOnClickListener(v->{if(busy)return;PopupMenu p=new PopupMenu(this,menu);p.getMenu().add("元画像だけ保存").setOnMenuItemClickListener(i->{saveOriginal();return true;});p.getMenu().add("撮り直す").setOnMenuItemClickListener(i->{retake();return true;});p.show();});controls.add(menu);top.addView(menu,new LinearLayout.LayoutParams(Style.dp(this,54),Style.dp(this,48)));root.addView(top);
+        content=new FrameLayout(this);root.addView(content,new LinearLayout.LayoutParams(-1,0,1));
+        workspace=new LinearLayout(this);workspace.setOrientation(LinearLayout.VERTICAL);Style.padding(workspace,16,0);content.addView(workspace,new FrameLayout.LayoutParams(-1,-1));
+        kicker=Style.text(this,"窓の向こうの、今日を残そう。",12,Style.MUTED);Style.padding(kicker,4,8);workspace.addView(kicker);
+        frame=new FrameLayout(this);frame.setBackground(Style.shape(Color.rgb(26,43,44),22,this));frame.setClipToOutline(true);workspace.addView(frame,new LinearLayout.LayoutParams(-1,0,1));
+        camera=new PreviewView(this);camera.setScaleType(PreviewView.ScaleType.FIT_CENTER);frame.addView(camera,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout welcome=new LinearLayout(this);welcome.setGravity(Gravity.CENTER);welcome.setOrientation(LinearLayout.VERTICAL);
+        TextView mountain=Style.title(this,"△",66);mountain.setTextColor(Color.rgb(140,171,156));welcome.addView(mountain);TextView hint=Style.text(this,"いつもの窓から、\n今日だけの富士山を。",17,Style.PAPER);hint.setGravity(Gravity.CENTER);welcome.addView(hint);frame.addView(welcome,new FrameLayout.LayoutParams(-1,-1));welcome.setTag("welcome");
+        guide=new ImageView(this);guide.setScaleType(ImageView.ScaleType.FIT_CENTER);guide.setAlpha(.28f);frame.addView(guide,new FrameLayout.LayoutParams(-1,-1));
+        photo=new ImageView(this);photo.setScaleType(ImageView.ScaleType.FIT_CENTER);photo.setVisibility(View.GONE);frame.addView(photo,new FrameLayout.LayoutParams(-1,-1));
+        masks=new MaskView(this);frame.addView(masks,new FrameLayout.LayoutParams(-1,-1));
+        status=Style.text(this,"",12,Style.MUTED);Style.padding(status,4,8);status.setMaxLines(3);workspace.addView(status);
+        cameraPanel=new LinearLayout(this);cameraPanel.setGravity(Gravity.CENTER);Style.padding(cameraPanel,0,8);
+        Button load=action("写真を読み込む",this::choosePhoto,false);cameraPanel.addView(load,new LinearLayout.LayoutParams(0,Style.dp(this,54),1));
+        shutter=action("● 撮影する",this::takePhoto,true);LinearLayout.LayoutParams captureParams=new LinearLayout.LayoutParams(0,Style.dp(this,64),1);captureParams.setMargins(Style.dp(this,12),0,0,0);cameraPanel.addView(shutter,captureParams);workspace.addView(cameraPanel);
+        editPanel=new LinearLayout(this);editPanel.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout tools=new LinearLayout(this);addTool(tools,"範囲を設定",this::editMasks,false);addTool(tools,"元写真と比較",this::compare,false);editPanel.addView(tools);
+        aligned=new CheckBox(this);aligned.setText("山と稜線が保護範囲に入っている");aligned.setTextColor(Style.INK);aligned.setTextSize(12);editPanel.addView(aligned);
+        keepOriginal=new CheckBox(this);keepOriginal.setText("元写真も別に保存する");keepOriginal.setTextColor(Style.MUTED);keepOriginal.setTextSize(12);keepOriginal.setChecked(true);editPanel.addView(keepOriginal);
+        LinearLayout finish=new LinearLayout(this);addTool(finish,"加工する",this::process,false);addTool(finish,"日記に保存",this::save,true);editPanel.addView(finish);workspace.addView(editPanel);
+        LinearLayout nav=new LinearLayout(this);Style.padding(nav,12,8);String[] names={"◉  撮る","◇  編集","▤  富士日記"};
+        for(int i=0;i<3;i++){final int target=i;navigation[i]=action(names[i],()->navigate(target),false);nav.addView(navigation[i],new LinearLayout.LayoutParams(0,Style.dp(this,52),1));}root.addView(nav);
+        setContentView(root);
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root,(v,insets)->{androidx.core.graphics.Insets i=insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars());v.setPadding(i.left,i.top,i.right,i.bottom);return insets;});
+    }
+    Button action(String label,Runnable callback,boolean primary){Button b=Style.button(this,label,primary);b.setOnClickListener(v->{if(!busy)callback.run();});controls.add(b);return b;}
+    void addTool(LinearLayout row,String text,Runnable callback,boolean primary){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,Style.dp(this,48),1);p.setMargins(Style.dp(this,3),Style.dp(this,3),Style.dp(this,3),Style.dp(this,3));row.addView(action(text,callback,primary),p);}
+    void navigate(int target){
+        if(busy)return;
+        if(target==1&&original==null){message("写真を撮るか、読み込んでから編集してください。");return;}
+        page=target;shutter.setText(original==null?"● 撮影する":"撮り直す");heading.setText(target==2?"富士日記":target==1?"今日の一枚を整える":"富士窓カメラ");
+        workspace.setVisibility(target==2?View.GONE:View.VISIBLE);
+        if(target==2){if(diary==null){diary=new Diary.Screen(this);content.addView(diary.root,new FrameLayout.LayoutParams(-1,-1));}diary.root.setVisibility(View.VISIBLE);diary.reload();}
+        else if(diary!=null)diary.root.setVisibility(View.GONE);
+        cameraPanel.setVisibility(target==0?View.VISIBLE:View.GONE);editPanel.setVisibility(target==1?View.VISIBLE:View.GONE);
+        photo.setVisibility(target==1?View.VISIBLE:View.GONE);masks.setVisibility(target==1?View.VISIBLE:View.GONE);guide.setVisibility(target==0?View.VISIBLE:View.GONE);
+        kicker.setText(target==1?"富士山と空の色を、そのままに。":"同じ窓から、少しずつ違う景色を。");
+        for(int i=0;i<3;i++){navigation[i].setBackground(Style.shape(i==target?Style.TEAL:Style.PAPER,16,this));navigation[i].setTextColor(i==target?Style.WHITE:Style.MUTED);}
+        if(target!=0&&provider!=null){provider.unbindAll();capture=null;}
+        if(target==0&&checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)startCamera();
+    }
+    void message(String text){status.setText(text);}
     void lock(boolean value){busy=value;for(Button b:controls)b.setEnabled(!value);aligned.setEnabled(!value);keepOriginal.setEnabled(!value);}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants) {super.onRequestPermissionsResult(request,permissions,grants);if(request==10&&grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)startCamera();else message("撮影にはカメラの許可が必要です。写真の読み込みと富士日記は許可なしで使えます。");}
     void startCamera() {
@@ -62,13 +96,14 @@ public class MainActivity extends ComponentActivity {
         f.addListener(()->{try {
             provider=f.get();provider.unbindAll();
             Preview preview=new Preview.Builder().setTargetAspectRatio(AspectRatio.RATIO_4_3).setTargetRotation(getWindowManager().getDefaultDisplay().getRotation()).build();preview.setSurfaceProvider(camera.getSurfaceProvider());
-            capture=new ImageCapture.Builder().setTargetResolution(new android.util.Size(1600,1200)).setTargetRotation(getWindowManager().getDefaultDisplay().getRotation()).setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build();
-            provider.bindToLifecycle(this,CameraSelector.DEFAULT_BACK_CAMERA,preview,capture);
+            capture=new ImageCapture.Builder().setTargetResolution(new android.util.Size(1200,1600)).setTargetRotation(getWindowManager().getDefaultDisplay().getRotation()).setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build();
+            if(page==0){provider.bindToLifecycle(this,CameraSelector.DEFAULT_BACK_CAMERA,preview,capture);frame.findViewWithTag("welcome").setVisibility(View.GONE);message("半透明ガイドに山を合わせて撮影できます。");}else capture=null;
         }catch(Exception e){message("カメラ起動失敗: "+e.getMessage());}},ContextCompat.getMainExecutor(this));
     }
     void takePhoto() {
         if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.CAMERA},10);return;}
-        if(capture==null||original!=null){message("再撮影を押してから撮影してください");return;}
+        if(original!=null){retake();return;}
+        if(capture==null){message("カメラを準備しています。少し待ってから撮影してください。");startCamera();return;}
         shotDate=ShotDates.cameraNow();lock(true);message("撮影中…");shotId=new java.text.SimpleDateFormat("yyyyMMdd_HHmmss_SSS",Locale.US).format(new Date());
         raw=new File(getCacheDir(),"capture-"+shotId+".jpg");
         capture.takePicture(new ImageCapture.OutputFileOptions.Builder(raw).build(),worker,new ImageCapture.OnImageSavedCallback(){
@@ -78,7 +113,7 @@ public class MainActivity extends ComponentActivity {
                     float aspect=(float)b.getWidth()/b.getHeight();
                     if(Math.abs(masks.aspect-aspect)>.015f){masks.regions.clear();calibrated=false;aligned.setChecked(false);message("画角比率が変わりました。範囲を再登録してください");}
                     else message("撮影完了。範囲と稜線の位置を確認し、加工実行を押してください");
-                    masks.aspect=aspect;masks.overlays=true;masks.invalidate();lock(false);
+                    masks.aspect=aspect;masks.overlays=true;masks.invalidate();lock(false);navigate(1);
                 }); }catch(Exception|OutOfMemoryError e){runOnUiThread(()->{lock(false);message("画像読込失敗。元データは未変更: "+e.getMessage());});}
             }
             @Override public void onError(ImageCaptureException e){runOnUiThread(()->{lock(false);message("撮影失敗: "+e.getMessage());});}
@@ -109,7 +144,7 @@ public class MainActivity extends ComponentActivity {
                     // Imported photos can use a different crop or lens even at the same aspect ratio.
                     // Do not reuse a fixed mask silently. Persisted camera calibration is unchanged until registration.
                     masks.regions.clear();masks.aspect=(float)b.getWidth()/b.getHeight();masks.editing=false;masks.overlays=true;masks.invalidate();calibrated=false;
-                    lock(false);message("写真を読み込みました。今回の写真に合わせて範囲設定・保護範囲を登録してください（元ファイルは変更しません）");
+                    lock(false);navigate(1);message("写真を読み込みました。今回の写真に合わせて範囲設定・保護範囲を登録してください（元ファイルは変更しません）");
                 });
             }catch(Exception|OutOfMemoryError e){runOnUiThread(()->{lock(false);message("読込失敗。現在の画像と元ファイルは未変更: "+e.getMessage());});}
             finally{if(temp!=null)temp.delete();}
@@ -186,7 +221,7 @@ public class MainActivity extends ComponentActivity {
     void retake(){
         if(original==null)return;
         new android.app.AlertDialog.Builder(this).setMessage("未保存の撮影画像と加工結果を破棄して再撮影しますか？")
-            .setPositiveButton("再撮影",(d,w)->{photo.setImageDrawable(null);photo.setVisibility(View.GONE);if(original!=null)original.recycle();if(result!=null)result.recycle();original=null;result=null;if(raw!=null)raw.delete();masks.editing=false;masks.overlays=true;masks.invalidate();guide.setVisibility(View.VISIBLE);aligned.setChecked(false);message("半透明ガイドに山を合わせて撮影してください");}).setNegativeButton("戻る",null).show();
+            .setPositiveButton("再撮影",(d,w)->{photo.setImageDrawable(null);photo.setVisibility(View.GONE);if(original!=null)original.recycle();if(result!=null)result.recycle();original=null;result=null;if(raw!=null)raw.delete();masks.editing=false;masks.overlays=true;masks.invalidate();guide.setVisibility(View.VISIBLE);aligned.setChecked(false);navigate(0);message("半透明ガイドに山を合わせて撮影してください");}).setNegativeButton("戻る",null).show();
     }
-    @Override protected void onDestroy(){super.onDestroy();worker.shutdown();if(provider!=null)provider.unbindAll();}
+    @Override protected void onDestroy(){super.onDestroy();worker.shutdown();if(provider!=null)provider.unbindAll();if(diary!=null)diary.close();}
 }
