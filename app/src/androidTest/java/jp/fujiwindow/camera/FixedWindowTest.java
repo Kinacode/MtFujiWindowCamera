@@ -50,17 +50,26 @@ public class FixedWindowTest {
             assertEquals("clear summit stays unmasked",0,p.wire.get(710,370)[0],0);
         }finally{b.recycle();}
     }
-    @Test public void foregroundBlurIsContinuousAcrossBuildingsTreeAndBothEdges(){
-        Bitmap b=fixture(0);
+    @Test public void foregroundBlurKeepsTreeAndRoofBoundary(){
+        Bitmap b=fixture(0);Canvas canvas=new Canvas(b);Paint ink=new Paint();ink.setColor(Color.BLACK);ink.setStrokeWidth(5);canvas.drawLine(720*.51f,960*.78f,720*.51f,960*.84f,ink);
         try(FixedWindow.Plan p=FixedWindow.plan(b,true)){
             for(double x:new double[]{0,.1,.3,.5,.7,.8,.9,.999}){
                 assertTrue("entire lower foreground",p.house.get((int)(960*.95),(int)(719*x))[0]>250);
             }
-            assertTrue("tree included",p.house.get((int)(960*.81),(int)(720*.80))[0]>200);
+            assertEquals("tree excluded",0,p.house.get((int)(960*.81),(int)(720*.80))[0],0);
+            assertTrue("roof contour has a gentle inward ramp",p.house.get((int)(960*.824),(int)(720*.05))[0]<60);
             assertEquals("summit excluded",0,p.house.get(710,370)[0],0);
             assertEquals("clear upper sky excluded",0,p.house.get(600,100)[0],0);
-            assertEquals("mountain artifact uses horizontal structure",2,p.repair.get((int)(960*.80),(int)(720*.51))[0],0);
-            assertEquals("right stub uses vertical structure",1,p.repair.get((int)(960*.647),(int)(720*.94))[0],0);
+            assertEquals("mountain equipment uses local texture repair",2,p.repair.get((int)(960*.80),(int)(720*.51))[0],0);
+            assertEquals("right stub uses local texture repair",1,p.repair.get((int)(960*.647),(int)(720*.94))[0],0);
+        }finally{b.recycle();}
+    }
+    @Test public void leftRoofBoundaryIsNotErasedAndUnoccupiedMountainIsNotMasked(){
+        Bitmap b=fixture(0);Canvas c=new Canvas(b);Paint p=new Paint();p.setColor(Color.rgb(12,14,18));c.drawRect(0,806,210,960,p);
+        try(FixedWindow.Plan plan=FixedWindow.plan(b,true)){
+            assertEquals("roof edge does not become an erasure mask",0,plan.wire.get(806,70)[0],0);
+            assertEquals("roof edge keeps original pixels",0,plan.house.get(806,70)[0],0);
+            assertEquals("no broad mountain rectangle",0,plan.wire.get(768,370)[0],0);
         }finally{b.recycle();}
     }
     @Test public void emptySkyIsRejected(){Bitmap b=Bitmap.createBitmap(720,960,Bitmap.Config.ARGB_8888);b.eraseColor(Color.BLUE);try{FixedWindow.plan(b);fail("must reject absent wires");}catch(IllegalArgumentException expected){}finally{b.recycle();}}

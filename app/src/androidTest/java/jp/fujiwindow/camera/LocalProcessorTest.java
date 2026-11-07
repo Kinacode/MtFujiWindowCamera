@@ -31,6 +31,17 @@ public class LocalProcessorTest {
             else if(input.getPixel(x,y)!=output.getPixel(x,y))changed=true;
         }assertTrue(changed);input.recycle();output.recycle();
     }
+    @Test public void maskedBlurDoesNotBringSkyColourIntoDarkRoof(){
+        assertTrue(org.opencv.android.OpenCVLoader.initLocal());
+        Bitmap b=Bitmap.createBitmap(240,180,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);c.drawColor(Color.WHITE);Paint p=new Paint();p.setColor(Color.rgb(20,25,30));c.drawRect(0,100,240,180,p);
+        org.opencv.core.Mat wire=org.opencv.core.Mat.zeros(180,240,org.opencv.core.CvType.CV_8UC1),house=wire.clone();
+        try{
+            org.opencv.imgproc.Imgproc.rectangle(house,new org.opencv.core.Point(0,100),new org.opencv.core.Point(239,179),new org.opencv.core.Scalar(255),-1);
+            Bitmap out=LocalProcessor.applyMasks(b,wire,house);
+            assertEquals("sky unchanged",Color.WHITE,out.getPixel(100,99));
+            assertEquals("no bright roof halo",b.getPixel(100,100),out.getPixel(100,100));out.recycle();
+        }finally{wire.release();house.release();b.recycle();}
+    }
     @Test public void overlappingMountainFailsClosed(){
         ArrayList<MaskView.Region> r=regions();r.add(new MaskView.Region(0,new RectF(.45f,.4f,.5f,.45f)));
         Bitmap b=source();try{LocalProcessor.process(b,r);fail("must reject protected overlap");}catch(IllegalArgumentException expected){assertTrue(expected.getMessage().contains("保護範囲"));}finally{b.recycle();}

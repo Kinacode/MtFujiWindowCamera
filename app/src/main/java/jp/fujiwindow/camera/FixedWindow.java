@@ -53,7 +53,7 @@ final class FixedWindow {
         boolean success=false;
         try{
             gray.put(0,0,grey);polygon(protect,MOUNTAIN,w,h,0);polygon(protect,MOUNTAIN,w,h,shift);
-            int thickness=Math.max(4,(int)Math.round(h*22.0/1280));
+            int thickness=Math.max(5,(int)Math.round(h*18.0/1280));
             for(int k=0;k<3;k++){
                 Point previous=null;for(int x=0;x<w;x+=2){double nx=(double)x/(w-1);int expected=(int)((wireY(k,nx)+shift+tilt*nx)*h);int y=bestY(grey,w,h,x,expected,search,r);
                     if(ridge(grey,w,h,x,y,r)<5)y=expected;Point p=new Point(x,y);if(previous!=null)Imgproc.line(wire,previous,p,new Scalar(255),thickness);previous=p;}
@@ -83,21 +83,57 @@ final class FixedWindow {
             // Foreground parallax differs from the upper wires; use a damped bounded correction.
             double foregroundShift=Math.max(-.012,Math.min(.018,shift*.30));
             polygon(house,new double[][]{{0,.820},{.10,.820},{.24,.835},{.32,.827},{.41,.844},{.53,.840},{.65,.850},{.70,.825},{.75,.780},{.80,.758},{.85,.778},{.865,.830},{.93,.838},{1,.790},{1,1},{0,1}},w,h,foregroundShift);
+            // Preserve the tree canopy; this replaces the earlier request to blur all foreground.
+            Mat tree=Mat.zeros(h,w,CvType.CV_8UC1);
+            try{
+                polygon(tree,new double[][]{{.665,.852},{.697,.802},{.744,.766},{.79,.748},{.84,.760},{.875,.795},{.89,.850},{.85,.889},{.73,.889}},w,h,foregroundShift);
+                house.setTo(new Scalar(0),tree);
+            }finally{tree.release();}
+            refineLeftRoof(grey,wire,house,w,h,foregroundShift);
             Mat kernel=Imgproc.getStructuringElement(Imgproc.MORPH_RECT,new Size(17,17));try{Imgproc.dilate(protect,guard,kernel);}finally{kernel.release();}
             Core.bitwise_not(guard,inverse);
-            if(completeMountain)addCompletion(gray,wire,w,h,shift);
+            if(completeMountain)addCompletion(gray,wire,house,w,h,shift);
             else Core.bitwise_and(wire,inverse,wire);
             // Returned protection describes the mountain above the explicitly authorized foreground.
             Core.bitwise_not(house,inverse);Core.bitwise_and(protect,inverse,protect);
             buildRepairMap(repair,wire,w,h,shift,completeMountain);
             // Feather strictly inward: outside the building polygons remains bit-for-bit untouched before JPEG encoding.
-            Imgproc.distanceTransform(house,distance,Imgproc.DIST_L2,3);distance.convertTo(house,CvType.CV_8UC1,255.0/Math.max(5,h*.008));
+            Imgproc.distanceTransform(house,distance,Imgproc.DIST_L2,3);
+            // Keep original roof-edge pixels, then increase blur gradually farther inside buildings.
+            Core.subtract(distance,new Scalar(Math.max(1,h*.003)),distance);
+            distance.convertTo(house,CvType.CV_8UC1,255.0/Math.max(7,h*.018));
             if(Core.countNonZero(wire)>w*h*.22)throw new IllegalArgumentException("除去範囲が想定より大きいため加工を停止しました。");
             success=true;return new Plan(wire,house,protect,repair,shift,tilt);
         }finally{
             for(Mat m:new Mat[]{gray,edges,lines,median,detail,tower,guard,inverse,distance})m.release();
             if(!success){wire.release();house.release();protect.release();repair.release();}
         }
+    }
+    /** Follow a clear sky-to-roof transition only in the known lower-left building corridor.
+     * Never erase or blur the roof boundary to cover a failed inpaint. */
+    static void refineLeftRoof(byte[] grey,Mat wire,Mat house,int w,int h,double shift){
+        int start=(int)(h*(.79+shift)),end=Math.min(h-10,(int)(h*(.87+shift))),r=Math.max(2,(int)(h*.004));
+        byte[] removal=new byte[w*h],foreground=new byte[w*h];wire.get(0,0,removal);house.get(0,0,foreground);
+        for(int x=0;x<(int)(w*.22);x++){
+            int best=-1,score=20;
+            for(int y=start;y<end;y++){
+                int above=at(grey,w,h,x,y-r),below=at(grey,w,h,x,y+r),deep=at(grey,w,h,x,y+2*r);
+                int value=above-Math.max(below,deep);
+                if(value>score){score=value;best=y;}
+            }
+            if(best<0)continue;
+            int edge=best,edgeScore=0;
+            for(int y=Math.max(start,best-r);y<Math.min(end,best+2*r);y++){
+                int drop=at(grey,w,h,x,y-1)-at(grey,w,h,x,y);
+                if(drop>edgeScore){edgeScore=drop;edge=y;}
+            }
+            if(edgeScore<4)continue;best=edge-1;
+            for(int y=start;y<h;y++){
+                int i=y*w+x;foreground[i]=y>best?(byte)255:0;
+                if(y>=best-1)removal[i]=0;
+            }
+        }
+        wire.put(0,0,removal);house.put(0,0,foreground);
     }
     static double distance(double x,double y,double[][] path,double shift){double best=10;for(int i=1;i<path.length;i++){double ax=path[i-1][0],ay=path[i-1][1]+shift,bx=path[i][0],by=path[i][1]+shift,dx=bx-ax,dy=by-ay;double t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)));best=Math.min(best,Math.hypot(x-ax-t*dx,y-ay-t*dy));}return best;}
     static boolean nearCableShifted(double x,double y,double shift){
@@ -152,7 +188,7 @@ final class FixedWindow {
                 }
                 if(good>=14){
                     double left=Math.max(0,Math.min(a[0],a[2])-w*.04),rightX=Math.min(w*.39,Math.max(a[0],a[2])+w*.04),slope=dy/dx;
-                    Imgproc.line(mask,new Point(left,a[1]+(left-a[0])*slope),new Point(rightX,a[1]+(rightX-a[0])*slope),new Scalar(255),Math.max(4,(int)Math.round(h*.010)));
+                    Imgproc.line(mask,new Point(left,a[1]+(left-a[0])*slope),new Point(rightX,a[1]+(rightX-a[0])*slope),new Scalar(255),Math.max(3,(int)Math.round(h*.006)));
                 }
             }
             detector.detect(gray,segments);
@@ -166,8 +202,8 @@ final class FixedWindow {
             if(shift>.035)polygon(mask,new double[][]{{.95,.228},{1,.228},{1,.43},{.95,.43}},w,h,0);
         }finally{edges.release();lines.release();segments.release();detector.clear();}
     }
-    /** 1: vertical interpolation for residual sky wires/crossbar, 2: horizontal mountain texture.
-     * These local structural constraints prevent MI-GAN from inventing small objects. */
+    /** 1: thin-line sky repair, 2: mountain interior repair.
+     * Local Navier-Stokes inpainting avoids broad directional fill bands in these areas. */
     static void buildRepairMap(Mat repair,Mat wire,int w,int h,double shift,boolean completeMountain){
         Mat sky=Mat.zeros(h,w,CvType.CV_8UC1),mountain=Mat.zeros(h,w,CvType.CV_8UC1);
         try{
@@ -184,7 +220,7 @@ final class FixedWindow {
         }finally{sky.release();mountain.release();}
     }
     /** Fixed equipment corridors only. Inferred pixels, not recovery of the hidden original mountain. */
-    static void addCompletion(Mat gray,Mat wire,int w,int h,double shift){
+    static void addCompletion(Mat gray,Mat wire,Mat house,int w,int h,double shift){
         Mat corridor=Mat.zeros(h,w,CvType.CV_8UC1);
         try{
             polygon(corridor,new double[][]{{.302,.677},{.352,.677},{.377,.853},{.280,.853}},w,h,shift);
@@ -192,7 +228,31 @@ final class FixedWindow {
             polygon(corridor,new double[][]{{.455,.768},{.625,.768},{.625,.833},{.455,.833}},w,h,shift);
             polygon(corridor,new double[][]{{.57,.788},{.635,.788},{.635,.878},{.57,.878}},w,h,shift);
             polygon(corridor,new double[][]{{.36,.79},{.415,.79},{.415,.89},{.36,.89}},w,h,shift);
-            Core.bitwise_or(wire,corridor,wire);
+            // Extract actual thin dark equipment within the fixed corridors, instead of erasing
+            // broad rectangles of mountain texture. A closing filter preserves monotonic sky/ridge edges.
+            Mat horizontal=new Mat(),vertical=new Mat(),difference=new Mat(),features=new Mat();
+            int length=Math.max(15,(int)Math.round(w*.038));
+            Mat hk=Imgproc.getStructuringElement(Imgproc.MORPH_RECT,new Size(length,1)),vk=Imgproc.getStructuringElement(Imgproc.MORPH_RECT,new Size(1,length));
+            try{
+                Imgproc.morphologyEx(gray,horizontal,Imgproc.MORPH_CLOSE,hk);
+                Imgproc.morphologyEx(gray,vertical,Imgproc.MORPH_CLOSE,vk);
+                Core.max(horizontal,vertical,difference);Core.subtract(difference,gray,difference);
+                Imgproc.threshold(difference,features,8,255,Imgproc.THRESH_BINARY);
+                Core.bitwise_and(features,corridor,features);
+                Mat labels=new Mat(),stats=new Mat(),centres=new Mat();
+                try{
+                    int n=Imgproc.connectedComponentsWithStats(features,labels,stats,centres,8,CvType.CV_32S);
+                    int[] ids=new int[w*h];labels.get(0,0,ids);byte[] accepted=new byte[w*h];boolean[] keep=new boolean[n];
+                    for(int j=1;j<n;j++)keep[j]=Math.max(stats.get(j,Imgproc.CC_STAT_WIDTH)[0],stats.get(j,Imgproc.CC_STAT_HEIGHT)[0])>=Math.max(8,h*.018);
+                    for(int j=0;j<ids.length;j++)if(keep[ids[j]])accepted[j]=(byte)255;
+                    features.put(0,0,accepted);
+                }finally{labels.release();stats.release();centres.release();}
+                Mat dilation=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,new Size(5,5));
+                try{Imgproc.dilate(features,features,dilation);}finally{dilation.release();}
+                Core.bitwise_and(features,corridor,features);
+                Mat foregroundFree=new Mat();try{Core.bitwise_not(house,foregroundFree);Core.bitwise_and(features,foregroundFree,features);}finally{foregroundFree.release();}
+                Core.bitwise_or(wire,features,wire);
+            }finally{horizontal.release();vertical.release();difference.release();features.release();hk.release();vk.release();}
             // No equipment in the reference covers the summit. Keep that area outside every completion mask.
             Imgproc.rectangle(wire,new Point(.40*w,.68*h),new Point(.64*w,.760*h),new Scalar(0),-1);
         }finally{corridor.release();}

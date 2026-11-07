@@ -43,7 +43,17 @@ public final class LocalProcessor {
             if(Core.countNonZero(wire)>0) Photo.inpaint(rgb,wire,filled,3,Photo.INPAINT_TELEA); else rgb.copyTo(filled);
             if(Core.countNonZero(house)>0) {
                 double sigma=Math.max(2,h*.0065);int size=((int)Math.ceil(sigma*6))|1;
-                Imgproc.GaussianBlur(filled,blurred,new Size(size,size),sigma);
+                // Normalized masked convolution: sky/tree colours cannot bleed into a roof edge.
+                Mat weight=new Mat(),weightBlur=new Mat(),rgbFloat=new Mat(),weighted=new Mat(),weightedBlur=new Mat();
+                java.util.List<Mat> channels=new java.util.ArrayList<>();
+                try{
+                    house.convertTo(weight,CvType.CV_32F,1.0/255);
+                    Imgproc.GaussianBlur(weight,weightBlur,new Size(size,size),sigma);
+                    Core.max(weightBlur,new Scalar(.0001),weightBlur);
+                    filled.convertTo(rgbFloat,CvType.CV_32FC3);Core.split(rgbFloat,channels);
+                    for(Mat channel:channels){Core.multiply(channel,weight,weighted);Imgproc.GaussianBlur(weighted,weightedBlur,new Size(size,size),sigma);Core.divide(weightedBlur,weightBlur,channel);}
+                    Core.merge(channels,rgbFloat);rgbFloat.convertTo(blurred,CvType.CV_8UC3);
+                }finally{weight.release();weightBlur.release();rgbFloat.release();weighted.release();weightedBlur.release();for(Mat channel:channels)channel.release();}
                 blurred.copyTo(filled,house);
             }
             // Compose in integer ARGB: outside the union remains exactly the decoded original.

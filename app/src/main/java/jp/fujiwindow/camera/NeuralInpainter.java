@@ -86,7 +86,7 @@ final class NeuralInpainter implements AutoCloseable {
             if(progress!=null)progress.update(++done,jobs.size());
         }
         if(cancel.getAsBoolean()||Thread.currentThread().isInterrupted())throw new CancellationException("AI処理を中止しました");
-        if(repair!=null){byte[] directions=new byte[w*h];repair.get(0,0,directions);StructureRepair.apply(source,output,removal,directions,w,h);}
+        if(repair!=null){ConstrainedRepair.apply(original,output,wire,repair);MaskBlend.apply(source,output,wire,w,h);}
         if(cancel.getAsBoolean()||Thread.currentThread().isInterrupted())throw new CancellationException("AI処理を中止しました");
         Bitmap filled=Bitmap.createBitmap(output,w,h,Bitmap.Config.ARGB_8888);Mat empty=Mat.zeros(h,w,CvType.CV_8UC1);
         try{return LocalProcessor.applyMasks(filled,empty,house);}finally{empty.release();filled.recycle();}
