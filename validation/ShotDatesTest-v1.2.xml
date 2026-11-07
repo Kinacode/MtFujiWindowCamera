@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="jp.fujiwindow.camera.ShotDatesTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-11-07T10:15:03" hostname="8321ddb601e9" time="0.042">
+  <properties/>
+  <testcase name="impossibleAndAbsentDatesAreRejected" classname="jp.fujiwindow.camera.ShotDatesTest" time="0.017"/>
+  <testcase name="savedFallbackIsExplicit" classname="jp.fujiwindow.camera.ShotDatesTest" time="0.013"/>
+  <testcase name="exifWallTimeAndOffsetArePreserved" classname="jp.fujiwindow.camera.ShotDatesTest" time="0.002"/>
+  <testcase name="missingOffsetDoesNotLoseDate" classname="jp.fujiwindow.camera.ShotDatesTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
