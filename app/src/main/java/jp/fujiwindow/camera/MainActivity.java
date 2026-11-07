@@ -76,7 +76,7 @@ public class MainActivity extends ComponentActivity {
     void addTool(LinearLayout row,String text,Runnable callback,boolean primary){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,Style.dp(this,48),1);p.setMargins(Style.dp(this,3),Style.dp(this,3),Style.dp(this,3),Style.dp(this,3));row.addView(action(text,callback,primary),p);}
     void navigate(int target){
         if(busy)return;
-        if(target==1&&original==null){message("写真を撮るか、読み込んでから編集してください。");return;}
+        if(target==1&&original==null){if(page==2)navigate(0);message("写真を撮るか、読み込んでから編集してください。");return;}
         page=target;shutter.setText(original==null?"● 撮影する":"撮り直す");heading.setText(target==2?"富士日記":target==1?"今日の一枚を整える":"富士窓カメラ");
         workspace.setVisibility(target==2?View.GONE:View.VISIBLE);
         if(target==2){if(diary==null){diary=new Diary.Screen(this);content.addView(diary.root,new FrameLayout.LayoutParams(-1,-1));}diary.root.setVisibility(View.VISIBLE);diary.reload();}
