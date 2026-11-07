@@ -34,7 +34,7 @@ public class PortraitUiTest {
         ShotDates.put(c,uri,ShotDates.parse("2026:11:07 06:12:00","+09:00","EXIF撮影日時"));return uri;
     }
     void screenshot(String name)throws Exception{
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync();Bitmap image=InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();assertNotNull(image);
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();android.os.SystemClock.sleep(500);InstrumentationRegistry.getInstrumentation().waitForIdleSync();Bitmap image=InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();assertNotNull(image);
         Context c=InstrumentationRegistry.getInstrumentation().getTargetContext();ContentValues v=new ContentValues();v.put(MediaStore.Images.Media.DISPLAY_NAME,name+".png");v.put(MediaStore.Images.Media.MIME_TYPE,"image/png");v.put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/FujiWindowCameraTest/");Uri uri=c.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,v);assertNotNull(uri);try(OutputStream out=c.getContentResolver().openOutputStream(uri)){assertTrue(image.compress(Bitmap.CompressFormat.PNG,100,out));}image.recycle();
     }
     @Test public void portraitJournalMemoAndEditor()throws Exception{

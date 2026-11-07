@@ -53,8 +53,8 @@ public class MainActivity extends ComponentActivity {
         kicker=Style.text(this,"窓の向こうの、今日を残そう。",12,Style.MUTED);Style.padding(kicker,4,8);workspace.addView(kicker);
         frame=new FrameLayout(this);frame.setBackground(Style.shape(Color.rgb(26,43,44),22,this));frame.setClipToOutline(true);workspace.addView(frame,new LinearLayout.LayoutParams(-1,0,1));
         camera=new PreviewView(this);camera.setScaleType(PreviewView.ScaleType.FIT_CENTER);frame.addView(camera,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout welcome=new LinearLayout(this);welcome.setGravity(Gravity.CENTER);welcome.setOrientation(LinearLayout.VERTICAL);
-        TextView mountain=Style.title(this,"△",66);mountain.setTextColor(Color.rgb(140,171,156));welcome.addView(mountain);TextView hint=Style.text(this,"いつもの窓から、\n今日だけの富士山を。",17,Style.PAPER);hint.setGravity(Gravity.CENTER);welcome.addView(hint);frame.addView(welcome,new FrameLayout.LayoutParams(-1,-1));welcome.setTag("welcome");
+        LinearLayout welcome=new LinearLayout(this);welcome.setGravity(Gravity.CENTER);welcome.setOrientation(LinearLayout.VERTICAL);welcome.setBackgroundColor(Color.rgb(26,43,44));
+        TextView mountain=Style.title(this,"△",66);mountain.setTextColor(Color.rgb(140,171,156));mountain.setGravity(Gravity.CENTER);welcome.addView(mountain);TextView hint=Style.text(this,"いつもの窓から、\n今日だけの富士山を。",17,Style.PAPER);hint.setGravity(Gravity.CENTER);welcome.addView(hint);frame.addView(welcome,new FrameLayout.LayoutParams(-1,-1));welcome.setTag("welcome");
         guide=new ImageView(this);guide.setScaleType(ImageView.ScaleType.FIT_CENTER);guide.setAlpha(.28f);frame.addView(guide,new FrameLayout.LayoutParams(-1,-1));
         photo=new ImageView(this);photo.setScaleType(ImageView.ScaleType.FIT_CENTER);photo.setVisibility(View.GONE);frame.addView(photo,new FrameLayout.LayoutParams(-1,-1));
         masks=new MaskView(this);frame.addView(masks,new FrameLayout.LayoutParams(-1,-1));
