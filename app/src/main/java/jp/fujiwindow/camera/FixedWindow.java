@@ -34,10 +34,10 @@ final class FixedWindow {
         int w=source.getWidth(),h=source.getHeight();
         if(Math.abs((double)w/h-.75)>.015||w<360||h<480)throw new IllegalArgumentException("この窓モードは見本と同じ縦3:4の写真用です。同じカメラ・ズーム・向きで撮影してください。");
         int[] pixels=new int[w*h];source.getPixels(pixels,0,w,0,0,w,h);byte[] grey=new byte[pixels.length];for(int i=0;i<pixels.length;i++)grey[i]=(byte)luminance(pixels[i]);
-        int r=Math.max(3,(int)Math.round(h*6.0/1280)),search=Math.max(2,(int)Math.round(h*.005));
+        int r=Math.max(3,(int)Math.round(h*6.0/1280)),search=Math.max(2,(int)Math.round(h*.009));
         double shift=0,tilt=0,best=-1;
         // A bounded two-parameter fit using all three known wires; clouds alone must not trigger processing.
-        for(int sy=-30;sy<=30;sy+=2)for(int st=-10;st<=20;st+=5){
+        for(int sy=-64;sy<=64;sy+=2)for(int st=-10;st<=20;st+=5){
             double score=0;for(int k=0;k<3;k++)for(int j=0;j<60;j++){
                 double x=.04+.88*j/59;int ix=(int)(x*(w-1)),y=(int)((wireY(k,x)+sy/1000.0+st/1000.0*x)*h);
                 int iy=bestY(grey,w,h,ix,y,search,r);score+=Math.max(0,Math.min(60,ridge(grey,w,h,ix,iy,r)));
@@ -73,6 +73,7 @@ final class FixedWindow {
                 if(good>=26)Imgproc.line(wire,new Point(l[0],l[1]),new Point(l[2],l[3]),new Scalar(255),thickness);
             }
             addCableSegments(gray,wire,w,h,shift,completeMountain,thickness);
+            addResidualEquipment(gray,wire,w,h,shift,thickness);
             // Upper lattice tower only. Detail support keeps most surrounding sky pixels unmasked.
             polygon(tower,new double[][]{{.327,.680},{.344,.680},{.362,.766},{.304,.766}},w,h,shift);
             Imgproc.medianBlur(gray,median,11);Core.absdiff(gray,median,detail);Imgproc.threshold(detail,detail,8,255,Imgproc.THRESH_BINARY);Core.bitwise_and(detail,tower,detail);
@@ -86,7 +87,7 @@ final class FixedWindow {
             else Core.bitwise_and(wire,inverse,wire);
             // Feather strictly inward: outside the building polygons remains bit-for-bit untouched before JPEG encoding.
             Imgproc.distanceTransform(house,distance,Imgproc.DIST_L2,3);distance.convertTo(house,CvType.CV_8UC1,255.0/Math.max(5,h*.008));
-            if(Core.countNonZero(wire)>w*h*.18)throw new IllegalArgumentException("除去範囲が想定より大きいため加工を停止しました。");
+            if(Core.countNonZero(wire)>w*h*.22)throw new IllegalArgumentException("除去範囲が想定より大きいため加工を停止しました。");
             success=true;return new Plan(wire,house,protect,shift,tilt);
         }finally{
             for(Mat m:new Mat[]{gray,edges,lines,median,detail,tower,guard,inverse,distance})m.release();
@@ -94,12 +95,13 @@ final class FixedWindow {
         }
     }
     static double distance(double x,double y,double[][] path,double shift){double best=10;for(int i=1;i<path.length;i++){double ax=path[i-1][0],ay=path[i-1][1]+shift,bx=path[i][0],by=path[i][1]+shift,dx=bx-ax,dy=by-ay;double t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)));best=Math.min(best,Math.hypot(x-ax-t*dx,y-ay-t*dy));}return best;}
-    static boolean nearCable(double x,double y,double shift){
+    static boolean nearCableShifted(double x,double y,double shift){
         return distance(x,y,new double[][]{{1,.45},{.9,.61},{.80,.745},{.68,.825}},shift)<.038
             ||distance(x,y,new double[][]{{1,.49},{.94,.65},{.88,.79},{.82,.91}},shift)<.032
             ||distance(x,y,new double[][]{{1,.73},{.88,.80},{.74,.86},{.60,.885}},shift)<.026
             ||distance(x,y,new double[][]{{.39,.83},{.50,.865},{.62,.89},{.75,.875},{.88,.83}},shift)<.024;
     }
+    static boolean nearCable(double x,double y,double shift){return nearCableShifted(x,y,shift)||nearCableShifted(x,y,0);}
     static void addCableSegments(Mat gray,Mat mask,int w,int h,double shift,boolean fill,int thickness){
         Mat segments=new Mat();org.opencv.imgproc.LineSegmentDetector detector=Imgproc.createLineSegmentDetector(Imgproc.LSD_REFINE_STD);
         byte[] g=new byte[w*h];gray.get(0,0,g);int radius=Math.max(4,(int)(h*.006));
@@ -113,22 +115,53 @@ final class FixedWindow {
                 if(!nearCable(x1,y1,shift)||!nearCable(x2,y2,shift))continue;
                 double nx=-dy/length,ny=dx/length;int found=0;
                 for(int j=0;j<16;j++){double t=j/15.0;int x=(int)(a[0]+dx*t),y=(int)(a[1]+dy*t),score=0;
-                    for(int off=-radius/2;off<=radius/2;off++){int cx=(int)(x+nx*off),cy=(int)(y+ny*off);score=Math.max(score,Math.min(at(g,w,h,(int)(cx+nx*radius),(int)(cy+ny*radius)),at(g,w,h,(int)(cx-nx*radius),(int)(cy-ny*radius)))-at(g,w,h,cx,cy));}
+                    for(int off=-radius/2;off<=radius/2;off++){int cx=(int)(x+nx*off),cy=(int)(y+ny*off);int sideA=at(g,w,h,(int)(cx+nx*radius),(int)(cy+ny*radius)),sideB=at(g,w,h,(int)(cx-nx*radius),(int)(cy-ny*radius)),center=at(g,w,h,cx,cy);score=Math.max(score,Math.max(Math.min(sideA,sideB)-center,center-Math.max(sideA,sideB)));}
                     if(score>5)found++;
                 }
                 if(found>=9)Imgproc.line(mask,new Point(a[0],a[1]),new Point(a[2],a[3]),new Scalar(255),thickness);
             }
         }finally{segments.release();detector.clear();}
     }
+    /** The three reported residuals: faint low-left wires, the right crossbar and cropped fitting.
+     * Low-threshold detection is restricted to known sky corridors and requires a narrow dark ridge.
+     * The mountain guard is applied by plan() after these additions when completion is disabled. */
+    static void addResidualEquipment(Mat gray,Mat mask,int w,int h,double shift,int thickness){
+        Mat edges=new Mat(),lines=new Mat(),segments=new Mat();
+        org.opencv.imgproc.LineSegmentDetector detector=Imgproc.createLineSegmentDetector(Imgproc.LSD_REFINE_STD);
+        byte[] g=new byte[w*h];gray.get(0,0,g);int r=Math.max(3,(int)Math.round(h*6.0/1280));
+        try{
+            Imgproc.Canny(gray,edges,5,15);
+            Mat upper=edges.rowRange(0,(int)(h*.70)),lower=edges.rowRange((int)(h*.85),h),right=edges.colRange((int)(w*.39),w);
+            try{upper.setTo(new Scalar(0));lower.setTo(new Scalar(0));right.setTo(new Scalar(0));}finally{upper.release();lower.release();right.release();}
+            Imgproc.HoughLinesP(edges,lines,1,Math.PI/720,12,w*.10,w*.025);
+            for(int i=0;i<lines.rows();i++){
+                double[] a=lines.get(i,0);double dx=a[2]-a[0],dy=a[3]-a[1];
+                if(Math.abs(dy)>Math.abs(dx)*.12)continue;
+                int good=0;for(int j=0;j<24;j++){
+                    double t=j/23.0;int x=(int)(a[0]+dx*t),y=(int)(a[1]+dy*t),score=0;
+                    for(int off=-2;off<=2;off++)score=Math.max(score,ridge(g,w,h,x,y+off,r));
+                    if(score>=2)good++;
+                }
+                if(good>=16)Imgproc.line(mask,new Point(a[0],a[1]),new Point(a[2],a[3]),new Scalar(255),Math.max(3,(int)Math.round(h*.008)));
+            }
+            detector.detect(gray,segments);
+            for(int i=0;i<segments.rows();i++){
+                double[] a=segments.get(i,0);double dx=a[2]-a[0],dy=a[3]-a[1],y=(a[1]+a[3])/(2*h);
+                if(Math.min(a[0],a[2])<w*.83||Math.abs(dy)>Math.abs(dx)*.15||Math.abs(dx)<w*.055||y<.60||y>.69+shift)continue;
+                Imgproc.line(mask,new Point(a[0],a[1]),new Point(a[2],a[3]),new Scalar(255),Math.max(9,(int)Math.round(h*.023)));
+            }
+            if(shift>.035)polygon(mask,new double[][]{{.95,.228},{1,.228},{1,.43},{.95,.43}},w,h,0);
+        }finally{edges.release();lines.release();segments.release();detector.clear();}
+    }
     /** Fixed equipment corridors only. Inferred pixels, not recovery of the hidden original mountain. */
     static void addCompletion(Mat gray,Mat wire,int w,int h,double shift){
         Mat corridor=Mat.zeros(h,w,CvType.CV_8UC1);
         try{
-            polygon(corridor,new double[][]{{.318,.677},{.351,.677},{.373,.853},{.296,.853}},w,h,shift);
-            polygon(corridor,new double[][]{{.475,.762},{.507,.762},{.507,.887},{.475,.887}},w,h,shift);
-            polygon(corridor,new double[][]{{.491,.783},{.620,.783},{.620,.833},{.491,.833}},w,h,shift);
-            polygon(corridor,new double[][]{{.588,.797},{.623,.797},{.623,.873},{.588,.873}},w,h,shift);
-            polygon(corridor,new double[][]{{.377,.798},{.406,.798},{.406,.876},{.377,.876}},w,h,shift);
+            polygon(corridor,new double[][]{{.302,.677},{.352,.677},{.377,.853},{.280,.853}},w,h,shift);
+            polygon(corridor,new double[][]{{.443,.752},{.512,.752},{.512,.887},{.443,.887}},w,h,shift);
+            polygon(corridor,new double[][]{{.455,.768},{.625,.768},{.625,.833},{.455,.833}},w,h,shift);
+            polygon(corridor,new double[][]{{.57,.788},{.635,.788},{.635,.878},{.57,.878}},w,h,shift);
+            polygon(corridor,new double[][]{{.36,.79},{.415,.79},{.415,.89},{.36,.89}},w,h,shift);
             Core.bitwise_or(wire,corridor,wire);
             // No equipment in the reference covers the summit. Keep that area outside every completion mask.
             Imgproc.rectangle(wire,new Point(.40*w,.68*h),new Point(.64*w,.760*h),new Scalar(0),-1);

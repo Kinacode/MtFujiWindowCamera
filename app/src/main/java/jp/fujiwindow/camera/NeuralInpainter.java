@@ -50,7 +50,7 @@ final class NeuralInpainter implements AutoCloseable {
         int w=original.getWidth(),h=original.getHeight();
         int[] source=new int[w*h],output=new int[w*h],weights=new int[w*h];byte[] removal=new byte[w*h];
         original.getPixels(source,0,w,0,0,w,h);System.arraycopy(source,0,output,0,source.length);wire.get(0,0,removal);
-        int tw=Math.min(768,w),th=Math.min(768,h);int[] xs=starts(w,tw),ys=starts(h,th);ArrayList<int[]> jobs=new ArrayList<>();
+        int tw=Math.min(512,w),th=Math.min(512,h);int[] xs=starts(w,tw),ys=starts(h,th);ArrayList<int[]> jobs=new ArrayList<>();
         for(int y:ys)for(int x:xs)if(hasMask(removal,w,x,y,tw,th))jobs.add(new int[]{x,y});
         int done=0;if(progress!=null)progress.update(0,jobs.size());
         for(int[] job:jobs){

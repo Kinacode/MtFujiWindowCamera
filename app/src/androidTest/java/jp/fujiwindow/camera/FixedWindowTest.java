@@ -29,6 +29,27 @@ public class FixedWindowTest {
             assertEquals("unoccluded summit untouched",b.getPixel(370,705),result.getPixel(370,705));result.recycle();
         }finally{b.recycle();}
     }
+    @Test public void suppliedVerticalOffsetIsAccepted(){
+        Bitmap b=fixture(.046);
+        try(FixedWindow.Plan p=FixedWindow.plan(b,true)){
+            assertEquals(.046,p.shift,.012);
+            int x=360,y=(int)((FixedWindow.wireY(0,x/719.0)+.046)*960);
+            assertTrue(p.wire.get(y,x)[0]>0);
+        }finally{b.recycle();}
+    }
+    @Test public void markedResidualWiresCrossbarAndLeftEdgeOfPostAreCovered(){
+        Bitmap b=fixture(0);Canvas c=new Canvas(b);Paint ink=new Paint();ink.setColor(Color.rgb(20,25,30));
+        ink.setStrokeWidth(2);c.drawLine(0,960*.79f,720*.26f,960*.78f,ink);
+        ink.setStrokeWidth(7);c.drawLine(720*.9f,960*.647f,719,960*.641f,ink);
+        ink.setStrokeWidth(8);c.drawLine(720*.455f,960*.78f,720*.455f,960*.87f,ink);
+        try(FixedWindow.Plan p=FixedWindow.plan(b,true);FixedWindow.Plan strict=FixedWindow.plan(b,false)){
+            assertTrue("faint low left wire",p.wire.get((int)(960*.785),(int)(720*.13))[0]>0);
+            assertTrue("right horizontal crossbar",p.wire.get((int)(960*.644),(int)(720*.95))[0]>0);
+            assertTrue("left edge of mountain post",p.wire.get((int)(960*.82),(int)(720*.455))[0]>0);
+            assertEquals("mountain remains protected when disabled",0,strict.wire.get((int)(960*.82),(int)(720*.455))[0],0);
+            assertEquals("clear summit stays unmasked",0,p.wire.get(710,370)[0],0);
+        }finally{b.recycle();}
+    }
     @Test public void emptySkyIsRejected(){Bitmap b=Bitmap.createBitmap(720,960,Bitmap.Config.ARGB_8888);b.eraseColor(Color.BLUE);try{FixedWindow.plan(b);fail("must reject absent wires");}catch(IllegalArgumentException expected){}finally{b.recycle();}}
     @Test public void largeShiftIsRejected(){Bitmap b=fixture(.09);try{FixedWindow.plan(b);fail("must reject large camera displacement");}catch(IllegalArgumentException expected){}finally{b.recycle();}}
     @Test public void broadCloudBandsAreNotWires(){Bitmap b=Bitmap.createBitmap(720,960,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);c.drawColor(Color.LTGRAY);Paint p=new Paint();p.setColor(Color.DKGRAY);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(42);for(int k=0;k<3;k++){Path path=new Path();for(int x=0;x<720;x++){float y=(float)(FixedWindow.wireY(k,x/719.0)*960);if(x==0)path.moveTo(x,y);else path.lineTo(x,y);}c.drawPath(path,p);}try{FixedWindow.plan(b);fail("broad clouds must not be treated as thin wires");}catch(IllegalArgumentException expected){}finally{b.recycle();}}
