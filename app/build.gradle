@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
  namespace 'jp.fujiwindow.camera'
  compileSdk 35
- defaultConfig { applicationId 'jp.fujiwindow.camera'; minSdk 29; targetSdk 35; versionCode 8; versionName '1.5'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner' }
+ defaultConfig { applicationId 'jp.fujiwindow.camera'; minSdk 29; targetSdk 35; versionCode 9; versionName '1.6'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner' }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 dependencies {
@@ -12,8 +12,39 @@ dependencies {
  implementation 'androidx.camera:camera-view:1.4.2'
  implementation 'androidx.exifinterface:exifinterface:1.4.0'
  implementation 'org.opencv:opencv:4.11.0'
+ implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.31.1'
  testImplementation 'junit:junit:4.13.2'
  androidTestImplementation 'androidx.test.ext:junit:1.2.1'
  androidTestImplementation 'androidx.test:runner:1.6.2'
  androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
 }
+
+// Official MI-GAN weights (MIT). Download at build time; never download/upload photos at runtime.
+def aiAssetFolder = layout.buildDirectory.dir("generated/aiAssets").get().asFile
+def modelName = 'migan_pipeline_v2.onnx'
+def modelHash = '6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b'
+def checksum = { File f ->
+ def md = java.security.MessageDigest.getInstance('SHA-256')
+ f.withInputStream { input -> byte[] buffer = new byte[65536]; int n; while ((n = input.read(buffer)) != -1) md.update(buffer, 0, n) }
+ md.digest().encodeHex().toString()
+}
+tasks.register('prepareNeuralModel') {
+ inputs.property('modelSha256', modelHash)
+ outputs.file(new File(aiAssetFolder, modelName))
+ doLast {
+  aiAssetFolder.mkdirs()
+  def destination = new File(aiAssetFolder, modelName)
+  if (destination.exists() && checksum(destination) == modelHash) return
+  def temporary = new File(aiAssetFolder, modelName + '.download')
+  try {
+   def connection = new URL('https://huggingface.co/andraniksargsyan/migan/resolve/406830d0fa60666da0071c342ad2fbc8f30c5c64/migan_pipeline_v2.onnx').openConnection()
+   connection.connectTimeout = 30000; connection.readTimeout = 180000
+   connection.inputStream.withCloseable { input -> temporary.withOutputStream { output -> input.transferTo(output) } }
+   if (checksum(temporary) != modelHash) throw new GradleException('MI-GAN model checksum mismatch')
+   java.nio.file.Files.move(temporary.toPath(), destination.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+  } finally { temporary.delete() }
+ }
+}
+android.sourceSets.main.assets.srcDir(aiAssetFolder)
+android.packaging.jniLibs.useLegacyPackaging = true
+tasks.named('preBuild').configure { dependsOn('prepareNeuralModel') }

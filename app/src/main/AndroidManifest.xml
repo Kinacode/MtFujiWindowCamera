@@ -1,4 +1,6 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+ <uses-permission android:name="android.permission.INTERNET" tools:node="remove"/>
+ <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove"/>
  <uses-permission android:name="android.permission.CAMERA"/>
  <uses-feature android:name="android.hardware.camera.any" android:required="true"/>
  <application android:label="富士窓カメラ" android:theme="@style/AppTheme" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:icon="@drawable/ic_fuji" android:supportsRtl="true">

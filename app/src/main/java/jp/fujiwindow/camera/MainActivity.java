@@ -25,7 +25,7 @@ public class MainActivity extends ComponentActivity {
     PreviewView camera; ImageView photo,guide; MaskView masks; TextView status;
     LinearLayout actions; ImageCapture capture; ProcessCameraProvider provider;
     Bitmap original,result; boolean busy=false,showResult=false,calibrated=false; boolean fixedWindow=true;
-    CheckBox aligned,keepOriginal;Switch mountainFill;boolean completedMountain;Button zoomButton; File raw; String shotId; ShotDates.Stamp shotDate;
+    CheckBox aligned,keepOriginal;Switch mountainFill;boolean completedMountain,neuralResult,aiRunning;volatile boolean cancelAi;Button zoomButton,processButton,cancelButton; File raw; String shotId; ShotDates.Stamp shotDate;
     final ArrayList<Button> controls=new ArrayList<>();
     final androidx.activity.result.ActivityResultLauncher<String[]> photoPicker = registerForActivityResult(
         new androidx.activity.result.contract.ActivityResultContracts.OpenDocument(), uri -> {if(uri!=null) importPhoto(uri);});
@@ -69,18 +69,18 @@ public class MainActivity extends ComponentActivity {
         shutter=new ShutterButton(this);shutter.setOnClickListener(v->{if(!busy)takePhoto();});controls.add(shutter);cameraPanel.addView(shutter,new LinearLayout.LayoutParams(Style.dp(this,84),Style.dp(this,84)));
         LinearLayout zoomSide=new LinearLayout(this);zoomSide.setGravity(Gravity.CENTER);cameraPanel.addView(zoomSide,new LinearLayout.LayoutParams(0,-2,1));zoomButton=action("1×",()->{if(activeCamera!=null&&activeCamera.getCameraInfo().getZoomState().getValue()!=null){float current=activeCamera.getCameraInfo().getZoomState().getValue().getZoomRatio();setZoom(current<1.8f?2f:1f);}},false);zoomButton.setContentDescription("ズーム倍率を切り替える");zoomSide.addView(zoomButton,new LinearLayout.LayoutParams(Style.dp(this,52),Style.dp(this,40)));workspace.addView(cameraPanel);
         editPanel=new LinearLayout(this);editPanel.setOrientation(LinearLayout.VERTICAL);
-        editorTools=new LinearLayout(this);Style.padding(editorTools,10,4);addTool(editorTools,"この窓",this::selectMode,false);addTool(editorTools,"比較",this::compare,false);frame.addView(editorTools,new FrameLayout.LayoutParams(-1,Style.dp(this,60),Gravity.TOP));
+        editorTools=new LinearLayout(this);Style.padding(editorTools,10,4);addTool(editorTools,"この窓",this::selectMode,false);addTool(editorTools,"比較",this::compare,false);cancelButton=Style.button(this,"処理を中止",false);cancelButton.setVisibility(View.GONE);cancelButton.setOnClickListener(v->{cancelAi=true;cancelButton.setEnabled(false);message("AI処理を中止しています。元写真は保持されます。");});editorTools.addView(cancelButton,new LinearLayout.LayoutParams(0,Style.dp(this,48),1));frame.addView(editorTools,new FrameLayout.LayoutParams(-1,Style.dp(this,60),Gravity.TOP));
         aligned=new CheckBox(this);aligned.setText("見本と同じ窓・縦3:4の画角です");aligned.setTextColor(Style.INK);aligned.setTextSize(12);editPanel.addView(aligned);aligned.setVisibility(View.GONE);
         keepOriginal=new CheckBox(this);keepOriginal.setText("元写真も別に保存する");keepOriginal.setTextColor(Style.MUTED);keepOriginal.setTextSize(12);keepOriginal.setChecked(true);editPanel.addView(keepOriginal);keepOriginal.setVisibility(View.GONE);
         mountainFill=new Switch(this);mountainFill.setText("山の重なりを補完（推定）");mountainFill.setTextSize(12);mountainFill.setTextColor(Style.INK);Style.padding(mountainFill,16,4);mountainFill.setMinHeight(Style.dp(this,48));mountainFill.setChecked(getPreferences(0).getBoolean("complete_mountain",true));mountainFill.setOnCheckedChangeListener((v,checked)->{getPreferences(0).edit().putBoolean("complete_mountain",checked).apply();if(result!=null){photo.setImageBitmap(original);result.recycle();result=null;showResult=false;}message(checked?"設備に隠れた山肌や輪郭を周辺画素から推定します。元写真と比較して保存してください。":"山の保護を優先します。重なった設備は残ります。");});editPanel.addView(mountainFill);
-        LinearLayout finish=new LinearLayout(this);Style.padding(finish,10,4);addTool(finish,"加工",this::process,false);addTool(finish,"保存",this::save,true);editPanel.addView(finish);workspace.addView(editPanel);
+        LinearLayout finish=new LinearLayout(this);Style.padding(finish,10,4);processButton=addTool(finish,"AI加工",this::process,false);addTool(finish,"保存",this::save,true);editPanel.addView(finish);workspace.addView(editPanel);
         LinearLayout nav=new LinearLayout(this);Style.padding(nav,16,2);String[] names={"写真","編集","日記"};
         for(int i=0;i<3;i++){final int target=i;navigation[i]=action(names[i],()->navigate(target),false);nav.addView(navigation[i],new LinearLayout.LayoutParams(0,Style.dp(this,44),1));}root.addView(nav);
         setContentView(root);
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root,(v,insets)->{androidx.core.graphics.Insets i=insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars());v.setPadding(i.left,i.top,i.right,i.bottom);return insets;});
     }
     Button action(String label,Runnable callback,boolean primary){Button b=Style.button(this,label,primary);b.setOnClickListener(v->{if(!busy)callback.run();});controls.add(b);return b;}
-    void addTool(LinearLayout row,String text,Runnable callback,boolean primary){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,Style.dp(this,48),1);p.setMargins(Style.dp(this,3),Style.dp(this,3),Style.dp(this,3),Style.dp(this,3));row.addView(action(text,callback,primary),p);}
+    Button addTool(LinearLayout row,String text,Runnable callback,boolean primary){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,Style.dp(this,48),1);p.setMargins(Style.dp(this,3),Style.dp(this,3),Style.dp(this,3),Style.dp(this,3));Button button=action(text,callback,primary);row.addView(button,p);return button;}
     void navigate(int target){
         if(busy)return;
         if(target==1&&original==null){if(page==2)navigate(0);message("写真を撮るか、読み込んでから編集してください。");return;}
@@ -96,7 +96,7 @@ public class MainActivity extends ComponentActivity {
         if(target==0&&checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)startCamera();
     }
     void message(String text){status.setText(text);}
-    void lock(boolean value){busy=value;for(Button b:controls)b.setEnabled(!value);aligned.setEnabled(!value);keepOriginal.setEnabled(!value);mountainFill.setEnabled(!value);}
+    void lock(boolean value){busy=value;for(Button b:controls)b.setEnabled(!value);aligned.setEnabled(!value);keepOriginal.setEnabled(!value);mountainFill.setEnabled(!value);boolean stopping=value&&aiRunning;cancelButton.setVisibility(stopping?View.VISIBLE:View.GONE);cancelButton.setEnabled(true);editorTools.getChildAt(0).setVisibility(stopping?View.GONE:View.VISIBLE);editorTools.getChildAt(1).setVisibility(stopping?View.GONE:View.VISIBLE);}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants) {super.onRequestPermissionsResult(request,permissions,grants);if(request==10&&grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)startCamera();else message("撮影にはカメラの許可が必要です。写真の読み込みと富士日記は許可なしで使えます。");}
     void startCamera() {
         ListenableFuture<ProcessCameraProvider> f=ProcessCameraProvider.getInstance(this);
@@ -152,7 +152,7 @@ public class MainActivity extends ComponentActivity {
                     // Imported photos can use a different crop or lens even at the same aspect ratio.
                     // Do not reuse a fixed mask silently. Persisted camera calibration is unchanged until registration.
                     masks.regions.clear();masks.aspect=(float)b.getWidth()/b.getHeight();masks.editing=false;masks.overlays=!fixedWindow;masks.invalidate();calibrated=false;
-                    lock(false);navigate(1);message(fixedWindow?"この窓専用  ·  画角を確認して「加工」":"写真を読み込みました。範囲と富士山の保護範囲を登録してください。");
+                    lock(false);navigate(1);message(fixedWindow?"この窓専用  ·  元写真からAI加工":"写真を読み込みました。範囲と富士山の保護範囲を登録してください。");
                 });
             }catch(Exception|OutOfMemoryError e){runOnUiThread(()->{lock(false);message("読込失敗。現在の画像と元ファイルは未変更: "+e.getMessage());});}
             finally{if(temp!=null)temp.delete();}
@@ -169,7 +169,7 @@ public class MainActivity extends ComponentActivity {
     }
     void selectMode(){
         new android.app.AlertDialog.Builder(this).setTitle("加工する窓").setSingleChoiceItems(new String[]{"この窓に固定（範囲指定なし）","手動で範囲を指定（従来モード）"},fixedWindow?0:1,(d,which)->{
-            fixedWindow=which==0;mountainFill.setVisibility(fixedWindow?View.VISIBLE:View.GONE);aligned.setVisibility(fixedWindow?View.GONE:View.VISIBLE);if(result!=null){photo.setImageBitmap(original);result.recycle();result=null;showResult=false;}aligned.setChecked(false);aligned.setText(fixedWindow?"見本と同じ窓・縦3:4の画角です":"山と稜線が保護範囲に入っている");d.dismiss();
+            fixedWindow=which==0;processButton.setText(fixedWindow?"AI加工":"手動加工");mountainFill.setVisibility(fixedWindow?View.VISIBLE:View.GONE);aligned.setVisibility(fixedWindow?View.GONE:View.VISIBLE);if(result!=null){photo.setImageBitmap(original);result.recycle();result=null;showResult=false;}aligned.setChecked(false);aligned.setText(fixedWindow?"見本と同じ窓・縦3:4の画角です":"山と稜線が保護範囲に入っている");d.dismiss();
             if(fixedWindow){masks.editing=false;masks.regions.clear();masks.overlays=false;masks.invalidate();message("この窓の電線・住宅に固定。見本と同じ画角であることを確認して加工できます。稜線付近は残します。");}
             else editMasks();
         }).setNegativeButton("閉じる",null).show();
@@ -199,10 +199,16 @@ public class MainActivity extends ComponentActivity {
     }
     void process(){
         if(original==null||(!fixedWindow&&(!calibrated||masks.editing||!aligned.isChecked()))){message(fixedWindow?"見本と同じ窓・画角であることを確認してください。範囲指定は不要です。":"撮影・範囲登録後、保護範囲を確認してください");return;}
-        if(result!=null){photo.setImageBitmap(original);result.recycle();result=null;}showResult=false;lock(true);message("端末内で局所処理中…");masks.overlays=false;masks.invalidate();
+        if(result!=null){photo.setImageBitmap(original);result.recycle();result=null;}showResult=false;cancelAi=false;aiRunning=fixedWindow;lock(true);message(fixedWindow?"AIを準備中 · 写真は端末内で処理します":"手動の局所処理中…");masks.overlays=false;masks.invalidate();
         final boolean preset=fixedWindow,restore=preset&&mountainFill.isChecked();ArrayList<MaskView.Region> snapshot=new ArrayList<>(masks.regions);
-        worker.execute(()->{try {Bitmap b=preset?FixedWindow.process(original,restore):LocalProcessor.process(original,snapshot);runOnUiThread(()->{if(result!=null)result.recycle();result=b;completedMountain=restore;showResult=true;photo.setImageBitmap(b);lock(false);message(restore?"局所補完済み（推定）。山肌や輪郭が変わる場合があります。元写真と比較して保存してください。":preset?"山を保護して加工しました。重なった設備は残ります。":"加工後プレビュー。比較して保存してください。");});}
-            catch(Exception|OutOfMemoryError e){runOnUiThread(()->{lock(false);showResult=false;photo.setImageBitmap(original);masks.overlays=!fixedWindow;masks.invalidate();message("処理中止（元画像は未変更）: "+e.getMessage());});}});
+        worker.execute(()->{try {Bitmap b=processWithEngine(preset,restore,snapshot);runOnUiThread(()->{if(cancelAi||isDestroyed()){b.recycle();aiRunning=false;lock(false);message("AI処理を中止しました。元写真は保持されています。");return;}if(result!=null)result.recycle();result=b;completedMountain=restore;neuralResult=preset;aiRunning=false;showResult=true;photo.setImageBitmap(b);lock(false);message(preset?(restore?"AI加工完了（山の重なりも推定補完）。元写真と比較して保存してください。":"AI加工完了。山の保護を優先し、重なった設備は残します。"):"手動加工が完了しました。比較して保存してください。");});}
+            catch(Exception|OutOfMemoryError|LinkageError e){runOnUiThread(()->{aiRunning=false;lock(false);showResult=false;photo.setImageBitmap(original);masks.overlays=!fixedWindow;masks.invalidate();message("処理中止（元画像は未変更）: "+e.getMessage());});}});
+    }
+    Bitmap processWithEngine(boolean preset,boolean restore,java.util.List<MaskView.Region> regions)throws Exception{
+        if(!preset)return LocalProcessor.process(original,regions);
+        try(FixedWindow.Plan plan=FixedWindow.plan(original,restore);NeuralInpainter engine=new NeuralInpainter(this)){
+            return engine.process(original,plan.wire,plan.house,(done,total)->runOnUiThread(()->{if(!isDestroyed()&&!cancelAi)message("AI加工 "+done+" / "+total+"  ·  端末内で処理中");}),()->cancelAi);
+        }
     }
     void compare(){if(original==null)return;showResult=!showResult&&result!=null;photo.setImageBitmap(showResult?result:original);masks.overlays=!showResult&&!fixedWindow;masks.invalidate();message(showResult?(completedMountain?"加工後（山の重なりを推定補完）":"加工後プレビュー"):fixedWindow?"元写真。空の色と、補完した山肌や輪郭を比較してください。":"元画像（範囲表示）。保護範囲を確認してください。");}
     void save(){
@@ -230,14 +236,14 @@ public class MainActivity extends ComponentActivity {
             uri=getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,v);if(uri==null)throw new IOException("保存先を作成できません");
             try(InputStream in=new FileInputStream(tmp);OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("保存先を開けません");byte[] buffer=new byte[65536];int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);}
             try{ShotDates.put(this,uri,shotDate);}catch(Exception e){throw new IOException("日記日時の保存失敗",e);}
-            if(!getSharedPreferences("image_edits",0).edit().putBoolean(uri.toString(),b==result&&completedMountain).commit())throw new IOException("補完記録の保存失敗");
+            if(!getSharedPreferences("image_edits",0).edit().putBoolean(uri.toString(),b==result&&completedMountain).putBoolean("neural/"+uri,b==result&&neuralResult).commit())throw new IOException("補完記録の保存失敗");
             ContentValues ready=new ContentValues();ready.put(MediaStore.Images.Media.IS_PENDING,0);if(getContentResolver().update(uri,ready,null,null)!=1)throw new IOException("保存確定失敗");
-        }catch(IOException|RuntimeException e){if(uri!=null){getContentResolver().delete(uri,null,null);ShotDates.store(this).edit().remove(uri.toString()).apply();getSharedPreferences("image_edits",0).edit().remove(uri.toString()).apply();}throw e;}finally{tmp.delete();}
+        }catch(IOException|RuntimeException e){if(uri!=null){getContentResolver().delete(uri,null,null);ShotDates.store(this).edit().remove(uri.toString()).apply();getSharedPreferences("image_edits",0).edit().remove(uri.toString()).remove("neural/"+uri).apply();}throw e;}finally{tmp.delete();}
     }
     void retake(){
         if(original==null)return;
         new android.app.AlertDialog.Builder(this).setMessage("未保存の撮影画像と加工結果を破棄して再撮影しますか？")
             .setPositiveButton("再撮影",(d,w)->{photo.setImageDrawable(null);photo.setVisibility(View.GONE);if(original!=null)original.recycle();if(result!=null)result.recycle();original=null;result=null;if(raw!=null)raw.delete();masks.editing=false;masks.overlays=true;masks.invalidate();guide.setVisibility(View.VISIBLE);aligned.setChecked(false);navigate(0);message("半透明ガイドに山を合わせて撮影してください");}).setNegativeButton("戻る",null).show();
     }
-    @Override protected void onDestroy(){super.onDestroy();worker.shutdown();if(provider!=null)provider.unbindAll();if(diary!=null)diary.close();}
+    @Override protected void onDestroy(){super.onDestroy();cancelAi=true;worker.shutdownNow();if(provider!=null)provider.unbindAll();if(diary!=null)diary.close();}
 }
