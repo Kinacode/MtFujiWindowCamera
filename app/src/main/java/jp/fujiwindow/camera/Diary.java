@@ -48,7 +48,7 @@ final class Diary {
                     }
                     Entry e=visible.get(position);LinearLayout paper=(LinearLayout)outer.getChildAt(0);
                     ((TextView)paper.getChildAt(0)).setText(e.date.display.substring(0,10));
-                    ((TextView)paper.getChildAt(1)).setText(e.date.display.substring(11)+"  /  "+e.date.source+"  /  "+(e.processed()?"加工後":"元写真"));
+                    ((TextView)paper.getChildAt(1)).setText(e.date.display.substring(11)+"  /  "+e.date.source+"  /  "+(e.processed()?"加工後":"元写真")+(activity.getSharedPreferences("image_edits",0).getBoolean(e.uri.toString(),false)?" · 局所補完あり":""));
                     ImageView image=(ImageView)paper.getChildAt(2);image.setImageDrawable(null);image.setTag(e.uri);image.setContentDescription("富士山の写真を拡大");image.setOnClickListener(v->preview(e));
                     TextView note=(TextView)paper.getChildAt(3);String saved=notes().getString(e.key(),"");note.setText(saved.isEmpty()?"今日の空、山の表情。\nこの一枚に、ことばを添えて。":saved);note.setTextColor(saved.isEmpty()?Style.MUTED:Style.INK);
                     ((Button)paper.getChildAt(4)).setText(saved.isEmpty()?"＋ 日記を書く":"日記を編集");paper.getChildAt(4).setOnClickListener(v->edit(e));

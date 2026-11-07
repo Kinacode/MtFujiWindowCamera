@@ -53,7 +53,7 @@ public class PortraitUiTest {
             try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
                 scenario.onActivity(a->{assertEquals(Configuration.ORIENTATION_PORTRAIT,a.getResources().getConfiguration().orientation);assertEquals(0,a.page);});
                 onView(withText("● 撮影する")).check(matches(isDisplayed()));screenshot("01-camera-portrait");
-                onView(withText("▤  富士日記")).perform(click());
+                onView(withText("日記")).perform(click());
                 final boolean[] loaded={false};long until=android.os.SystemClock.uptimeMillis()+15000;
                 while(!loaded[0]&&android.os.SystemClock.uptimeMillis()<until){scenario.onActivity(a->loaded[0]=a.diary!=null&&a.diary.visible.size()==1);if(!loaded[0])android.os.SystemClock.sleep(100);}
                 assertTrue("original and processed grouped as one journal entry",loaded[0]);
@@ -68,7 +68,7 @@ public class PortraitUiTest {
                 final boolean[] edited={false};long editUntil=android.os.SystemClock.uptimeMillis()+10000;
                 while(!edited[0]&&android.os.SystemClock.uptimeMillis()<editUntil){scenario.onActivity(a->edited[0]=a.page==1&&a.original!=null&&!a.busy);if(!edited[0])android.os.SystemClock.sleep(100);}
                 assertTrue("import opens portrait editor",edited[0]);
-                onView(withText("日記に保存")).check(matches(isDisplayed()));onView(withText("この窓プリセット")).check(matches(isDisplayed()));screenshot("03-editor-portrait");
+                onView(withText("保存")).check(matches(isDisplayed()));onView(withText("この窓")).check(matches(isDisplayed()));screenshot("03-editor-portrait");
             }
         }finally{
             if(original!=null){context.getContentResolver().delete(original,null,null);ShotDates.store(context).edit().remove(original.toString()).commit();}

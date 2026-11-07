@@ -52,9 +52,9 @@ public final class LocalProcessor {
             try { Utils.matToBitmap(filled,candidate);candidate.getPixels(changed,0,w,0,0,w,h); }
             finally { candidate.recycle(); }
             combined.get(0,0,mask);
-            byte[] alpha=new byte[w*h];house.get(0,0,alpha);
+            byte[] alpha=new byte[w*h],removal=new byte[w*h];house.get(0,0,alpha);wire.get(0,0,removal);
             for(int i=0;i<pixels.length;i++) if(mask[i]!=0){
-                int blend=alpha[i]&255;
+                int blend=removal[i]!=0?255:alpha[i]&255;
                 if(blend==0||blend==255)pixels[i]=changed[i];
                 else {int old=pixels[i],v=changed[i];int r=(((old>>16)&255)*(255-blend)+((v>>16)&255)*blend+127)/255;int g=(((old>>8)&255)*(255-blend)+((v>>8)&255)*blend+127)/255;int b=((old&255)*(255-blend)+(v&255)*blend+127)/255;pixels[i]=0xff000000|(r<<16)|(g<<8)|b;}
             }
