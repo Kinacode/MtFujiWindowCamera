@@ -1,0 +1,58 @@
+name: Publish APK Release
+on:
+  workflow_run:
+    workflows: [Android APK]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Android APK workflow run ID
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+    steps:
+      - name: Verify successful main build from this repository
+        run: |
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN_ID" > run.json
+          jq -e --arg repo "$GH_REPO" '.conclusion == "success" and .head_branch == "main" and .head_repository.full_name == $repo and (.event == "push" or .event == "workflow_dispatch") and .name == "Android APK"' run.json
+          echo "BUILD_SHA=$(jq -r .head_sha run.json)" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: FujiWindowCamera-debug
+          path: apk
+          github-token: ${{ github.token }}
+          run-id: ${{ env.BUILD_RUN_ID }}
+      - name: Publish downloadable APK
+        run: |
+          sha256sum apk/app-debug.apk > apk/SHA256SUMS.txt
+          cat > notes.md <<'NOTES'
+          富士窓カメラ v1.2（Android 10以上）
+
+          Assetsの **app-debug.apk** をダウンロードして端末で開いてください。
+          初回は「範囲設定」で電線・住宅・富士山全体と稜線の保護範囲を登録してください。
+
+          撮影・写真読み込み、固定マスクの局所インペイント、住宅ぼかし、半透明ガイド、元／加工の別保存、EXIF撮影日時順の富士日記に対応。公開JPEGからGPS・元EXIFを削除し、撮影日時はアプリ内に保持します。JPEG保存時は再圧縮されます。
+
+          旧版でEXIF削除済みの写真は撮影日を復元できないため保存日時と明示します。
+
+          GitHub Actionsのビルド・Lint・単体テスト・Android画像処理テストが成功したAPKです。実際の窓での撮影と仕上がりは実機で確認してください。
+          CIのdebug署名はローカル版や別のCI実行と異なる場合があります。署名不一致で更新できない場合、旧アプリのアンインストールが必要です（範囲設定・ガイド・日記の撮影日時データは削除されます）。
+          NOTES
+          if ! gh release view v1.2.0 >/dev/null 2>&1; then
+            gh release create v1.2.0 --target "$BUILD_SHA" --title '富士窓カメラ v1.2' --notes-file notes.md --draft
+          fi
+          gh release upload v1.2.0 apk/app-debug.apk apk/SHA256SUMS.txt --clobber
+          gh release edit v1.2.0 --draft=false --latest --notes-file notes.md
