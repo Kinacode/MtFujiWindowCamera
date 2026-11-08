@@ -45,20 +45,25 @@ jobs:
         run: |
           (cd apk && sha256sum app-debug.apk > SHA256SUMS.txt)
           cat > notes.md <<'NOTES'
-          富士窓カメラ 1.7.0 検証版（Android 10以上）
+          富士窓カメラ 1.7.1 補完優先版（Android 10以上）
 
-          `app-debug.apk` をダウンロードして開いてください。モデル内蔵のため約320MBです。`jp.fujiwindow.camera.preview` という別アプリとして入り、従来版と富士日記のデータを残したまま比較できます。
+          `app-debug.apk`（約323MB）を開いてください。表示名は「富士窓カメラ 補完優先版」、パッケージは `jp.fujiwindow.camera.preview171`。従来版・1.7.0検証版を削除せずに比較できます。旧日記の自動移行はありません。
 
-          提供された実写10枚（縦9・横1）を基準に、近い電線と奥の支柱の位置合わせを分離。上部3本の曲線を個別追跡し、横位置や大きな上下差にも対応します。MI-GANからLaMaへ切り替え、鉄塔・中央設備には周辺を含む追加処理を行います。JPEGで線の周辺に広がる跡も処理範囲へ含めます。木はぼかさず、建物の輪郭を残して内側をぼかします。
+          最大ズームの実写10枚を基準に、細い線の残留より局所補完を優先して改修。写真を縦横に押し縮めず、重なり付きの正方形領域でLaMaを実行します。設備周辺と木のケーブル周辺を追加処理し、境界は内側でなじませます。木は住宅ぼかしから除外したまま、ケーブルと重なる葉は推定補完します。
 
-          写真を外部へ送りません。既知のマスク外のデコード済み画素は保持し、全体の彩度・色温度・明るさを調整しません。「山の重なりを補完（推定）」ON時の隠れた山肌は推定で、真の復元ではありません。JPEG保存では再圧縮が発生します。
+          雲を金具として広く消す誤検出を抑え、画面端の金具も検出。周囲の既知画素が滑らかにつながる二次的な除去範囲に限り、不自然な生成物を局所補間で抑えます。山頂の既知画素・マスク外のデコード済み画素を保持し、全体の色・明るさは調整しません。写真の外部送信はありません。
 
-          富士日記への過去写真の複数登録、EXIF撮影日時の非公開保存も維持しています。旧アプリの日記をこの検証版へ自動移行するものではありません。
+          過去写真の富士日記登録、EXIF撮影日の非公開保存、公開JPEGの元EXIF/GPS除去を維持。JPEG保存時は再圧縮します。
 
-          実写の位置合わせ・画素保持・目視評価と、Android上の実モデル／UI／EXIFの回帰テストを分けて確認します。元写真と加工結果を比較してください。元画像・実写の比較画像は公開ソースへ含めません。
+          位置合わせや自動テストの成功は画質の保証ではありません。補完した葉・雲・隠れた山肌は推定で、残留や質感差があり得ます。元写真との比較後に保存してください。推論回数が増えており、実機の処理時間とメモリ使用は端末依存です。実写・実写の比較画像は公開リポジトリへ含めません。
           NOTES
-          if ! gh release view v1.7.0-preview >/dev/null 2>&1; then
-            gh release create v1.7.0-preview --target "$BUILD_SHA" --title '富士窓カメラ v1.7.0-preview' --notes-file notes.md --draft --prerelease
+          tag=v1.7.1-preview
+          existing=$(gh release view "$tag" --json targetCommitish --jq '.targetCommitish' 2>/dev/null || true)
+          if [ -n "$existing" ] && [ "$existing" != "$BUILD_SHA" ]; then tag="$tag-${BUILD_SHA:0:7}"; fi
+          published=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null || true)
+          if [ "$published" = false ]; then echo "Already published $tag; preserving its APK and signature"; exit 0; fi
+          if [ -z "$published" ]; then
+            gh release create "$tag" --target "$BUILD_SHA" --title "富士窓カメラ $tag" --notes-file notes.md --draft --prerelease
           fi
-          gh release upload v1.7.0-preview apk/app-debug.apk apk/SHA256SUMS.txt screenshots/*.png --clobber
-          gh release edit v1.7.0-preview --draft=false --prerelease --latest=false --notes-file notes.md
+          gh release upload "$tag" apk/app-debug.apk apk/SHA256SUMS.txt screenshots/*.png --clobber
+          gh release edit "$tag" --draft=false --prerelease --latest=false --notes-file notes.md

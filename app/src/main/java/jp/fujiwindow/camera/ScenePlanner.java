@@ -17,7 +17,7 @@ final class ScenePlanner {
     static Masks plan(int[] pixels,int w,int h,boolean complete){
         if(Math.min(w,h)<360||Math.max(w,h)<480)throw new IllegalArgumentException("短辺360px以上の写真を選んでください。");
         float[] g=SceneAlignment.gray(pixels);SceneAlignment.Result a=SceneAlignment.locate(g,w,h);SceneAlignment.Pose p=a.pose;double u=Math.min(w,h)/576.0;
-        Mat wire=Mat.zeros(h,w,CvType.CV_8UC1),house=wire.clone(),tree=wire.clone(),protect=wire.clone(),refine=wire.clone(),thin=wire.clone(),main=wire.clone(),primary=wire.clone(),gray=new Mat(h,w,CvType.CV_8UC1),segments=new Mat();
+        Mat wire=Mat.zeros(h,w,CvType.CV_8UC1),house=wire.clone(),tree=wire.clone(),treeLines=wire.clone(),edge=wire.clone(),protect=wire.clone(),refine=wire.clone(),thin=wire.clone(),main=wire.clone(),primary=wire.clone(),gray=new Mat(h,w,CvType.CV_8UC1),segments=new Mat();
         boolean success=false;LineSegmentDetector detector=Imgproc.createLineSegmentDetector(Imgproc.LSD_REFINE_STD);
         try{
             byte[] grayscale=new byte[g.length];for(int i=0;i<g.length;i++)grayscale[i]=(byte)Math.round(g[i]);gray.put(0,0,grayscale);
@@ -33,22 +33,27 @@ final class ScenePlanner {
                 boolean mid=slope>.04&&slope<.30&&my>first+80*u&&my<first+190*u&&length>w*.12;
                 boolean right=Math.min(x1,x2)>w*.59&&slope<-.35&&slope>-6&&my>SceneAlignment.eval(a.curves[0],mx/w)-40*u;
                 boolean low=Math.max(x1,x2)<p.x-50*p.scale&&my>first+160*u&&my<p.y+20*u&&Math.abs(slope)<.20&&length>w*.10;
-                boolean bracket=Math.min(x1,x2)>w*.84&&my<SceneAlignment.eval(a.curves[0],.95)+25*u&&(Math.abs(slope)<.4||Math.abs(slope)>2);
+                double nearSpan=SceneAlignment.eval(a.curves[0],.95);
+                boolean bracket=Math.min(x1,x2)>w*.84&&my>nearSpan-130*u&&my<nearSpan+25*u&&(Math.abs(slope)<.4||Math.abs(slope)>2);
                 boolean bar=Math.min(x1,x2)>w*.75&&Math.abs(slope)<.18&&my>first+100*u&&my<first+240*u;
                 boolean lower=nearLower(mx,my,p,u)&&my>p.y+8*u;
                 if(length<w*.035&&!(lower||bracket))continue;if(!(mid||right||low||bracket||bar||lower))continue;
                 if(value(foreground,w,h,mx,my)!=0&&!lower)continue;
+                if(!supported(z,g,w,h,u,false))continue;
+                if(bracket&&!supported(z,g,w,h,u,false,12))continue;
                 if(bracket&&(Math.abs(dx)<Math.abs(dy)*.1||Math.abs(dy)<Math.abs(dx)*.25)){
                     boolean clear=true;for(double[] co:a.curves)if(Math.abs(my-SceneAlignment.eval(co,mx/w))<=9*u)clear=false;
                     if(Math.abs(dx)<Math.abs(dy)*.1||clear)hardware.add(z);
                 }
-                if(!supported(z,g,w,h,u,false))continue;
                 if(value(canopy,w,h,mx,my)!=0&&!supported(z,g,w,h,u,true))continue;
                 line(wire,Arrays.asList(new Point(x1,y1),new Point(x2,y2)),(bracket?11:7)*u);
-                if(low)line(thin,Arrays.asList(new Point(x1,y1),new Point(x2,y2)),7*u);if(mid)middle.add(z);if(right)cables.add(z);
+                if(lower&&length>15*u&&supported(z,g,w,h,u,true,12))line(treeLines,Arrays.asList(new Point(x1,y1),new Point(x2,y2)),9*u);
+                if(low)line(thin,Arrays.asList(new Point(x1,y1),new Point(x2,y2)),7*u);if(mid)middle.add(z);if(right&&my<p.y-50*u)cables.add(z);
             }
             middleWire(wire,thin,middle,g,a.curves,w,h,u);bracket(wire,hardware,a.curves,g,gray,w,h,u);
-            traceCables(wire,cables,g,canopy,p,a.curves,w,h,u);
+            edgeHardware(edge,g,a.curves,w,h,u);Core.bitwise_or(wire,edge,wire);
+            traceCables(wire,treeLines,cables,g,canopy,p,a.curves,w,h,u);
+            foliageCables(wire,treeLines,gray,tree,g,w,h,u);
             // JPEG ringing extends beyond a wire. Cover its coded neighbourhood, not just the dark centre.
             coverBlocks(wire,wire,8);coverBlocks(primary,main,16);Core.bitwise_or(wire,main,wire);
             // Only the actual equipment is refined with a square context crop.
@@ -56,19 +61,26 @@ final class ScenePlanner {
             Core.bitwise_or(wire,refine,wire);
             faintWires(wire,thin,g,p,foreground,w,h,u);
             Mat summit=wire.clone();summit.setTo(new Scalar(0));try{polygon(summit,p,new double[][]{{260,566},{325,566},{325,605},{260,605}});wire.setTo(new Scalar(0),summit);refine.setTo(new Scalar(0),summit);}finally{summit.release();}
-            // Preserve tree branches; only a narrow bright cable core can be replaced on the canopy.
-            Mat topHat=new Mat(),core=new Mat(),kernel=Mat.ones(Math.max(5,(int)Math.round(9*u)),Math.max(5,(int)Math.round(9*u)),CvType.CV_8UC1);
-            try{
-                Imgproc.morphologyEx(gray,topHat,Imgproc.MORPH_TOPHAT,kernel);Imgproc.threshold(topHat,core,28,255,Imgproc.THRESH_BINARY);Core.bitwise_and(core,wire,core);
-                Mat small=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,new Size(3,3));try{Imgproc.dilate(core,core,small);}finally{small.release();}
-                byte[] masks=bytes(wire),cores=bytes(core),r=bytes(refine),t=bytes(thin);for(int i=0;i<masks.length;i++){if(canopy[i]!=0&&cores[i]==0)masks[i]=0;if(masks[i]==0){r[i]=0;t[i]=0;}else if(canopy[i]!=0)t[i]=(byte)255;}wire.put(0,0,masks);refine.put(0,0,r);thin.put(0,0,t);
-            }finally{topHat.release();core.release();kernel.release();}
+            // Keep the neural hole continuous across a cable on foliage. Fragmenting it into
+            // bright pixels leaves dark cable cores and artificial rims around the preserved tree.
+            // Foliage is still excluded from house blur; only actual removal holes are inferred.
+            byte[] removal=bytes(wire),treeCables=bytes(treeLines),detail=bytes(refine);
+            for(int i=0;i<removal.length;i++)if(canopy[i]!=0&&treeCables[i]==0){removal[i]=0;detail[i]=0;}
+            wire.put(0,0,removal);refine.put(0,0,detail);thin.setTo(new Scalar(0),tree);
             if(!complete){Mat inverse=new Mat(),guardMt=new Mat(),k=Mat.ones(7,7,CvType.CV_8UC1);try{Imgproc.dilate(protect,guardMt,k);Core.bitwise_not(guardMt,inverse);Core.bitwise_and(wire,inverse,wire);Core.bitwise_and(refine,inverse,refine);}finally{inverse.release();guardMt.release();k.release();}}
             Core.bitwise_and(thin,wire,thin);Core.bitwise_and(main,wire,main);
+            coverBlocks(edge,edge,8);main.setTo(new Scalar(0),edge);
+            if(Core.countNonZero(edge)>0){
+                // The corner hardware can overlap a main-wire JPEG block. Treat the whole
+                // supported corner as secondary context, so a generated remnant is not shielded.
+                double span=SceneAlignment.eval(a.curves[0],1);
+                // Include the JPEG-block padding below the supported hardware as well.
+                Imgproc.rectangle(main,new Point(Math.round(w*.87),Math.max(0,Math.round(span-150*u))),new Point(w-1,Math.min(h-1,Math.round(span+64*u))),new Scalar(0),-1);
+            }
             Mat distance=new Mat();try{Imgproc.distanceTransform(house,distance,Imgproc.DIST_L2,3);Core.subtract(distance,new Scalar(3*u),distance);distance.convertTo(house,CvType.CV_8UC1,255/(10*u));}finally{distance.release();}
             if(Core.countNonZero(wire)>w*h*.38)throw new IllegalArgumentException("加工範囲が想定より大きいため停止しました。");
             success=true;return new Masks(wire,house,protect,refine,thin,main,a);
-        }finally{tree.release();primary.release();gray.release();segments.release();detector.clear();if(!success){wire.release();house.release();protect.release();refine.release();thin.release();main.release();}}
+        }finally{tree.release();treeLines.release();edge.release();primary.release();gray.release();segments.release();detector.clear();if(!success){wire.release();house.release();protect.release();refine.release();thin.release();main.release();}}
     }
     /** Keep the dense canopy, rather than treating all sky inside its coarse polygon as tree. */
     static void refineTree(float[] g,Mat tree,SceneAlignment.Pose p,int w,int h,double u){
@@ -119,11 +131,14 @@ final class ScenePlanner {
         for(double[][] path:paths)for(int i=1;i<path.length;i++){Point a=point(p,path[i-1][0],path[i-1][1]),b=point(p,path[i][0],path[i][1]);double dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((x-a.x)*dx+(y-a.y)*dy)/(dx*dx+dy*dy)));if(Math.hypot(x-a.x-t*dx,y-a.y-t*dy)<14*u)return true;}return false;
     }
     static boolean supported(double[] a,float[] g,int w,int h,double u,boolean brightOnly){
+        return supported(a,g,w,h,u,brightOnly,5);
+    }
+    static boolean supported(double[] a,float[] g,int w,int h,double u,boolean brightOnly,double threshold){
         double dx=a[2]-a[0],dy=a[3]-a[1],length=Math.hypot(dx,dy),nx=-dy/length,ny=dx/length;int good=0,r=Math.max(3,(int)Math.round(4*u));
         for(int j=0;j<24;j++){
             double t=j/23.0,x=a[0]+dx*t,y=a[1]+dy*t,best=0;
             for(int off:new int[]{-2,0,2}){int cx=Math.max(r,Math.min(w-r-1,(int)Math.round(x+nx*off))),cy=Math.max(r,Math.min(h-r-1,(int)Math.round(y+ny*off)));double aa=SceneAlignment.at(g,w,h,(int)(cx+nx*r),(int)(cy+ny*r)),bb=SceneAlignment.at(g,w,h,(int)(cx-nx*r),(int)(cy-ny*r)),v=g[cy*w+cx];best=Math.max(best,Math.max(brightOnly?0:Math.min(aa,bb)-v,v-Math.max(aa,bb)));}
-            if(best>5)good++;
+            if(best>threshold)good++;
         }return good>=16;
     }
     static void middleWire(Mat wire,Mat thin,List<double[]> lines,float[] g,double[][] curves,int w,int h,double u){
@@ -148,16 +163,41 @@ final class ScenePlanner {
         boolean stem=false;double minX=w,minY=h,maxY=0,minMid=h,maxMid=0;
         for(double[] a:hardware){if(Math.abs(a[2]-a[0])<Math.abs(a[3]-a[1])*.1&&Math.abs(a[3]-a[1])>12*u)stem=true;minX=Math.min(minX,Math.min(a[0],a[2]));minY=Math.min(minY,Math.min(a[1],a[3]));maxY=Math.max(maxY,Math.max(a[1],a[3]));double mid=(a[1]+a[3])/2;minMid=Math.min(minMid,mid);maxMid=Math.max(maxMid,mid);}
         if(!hardware.isEmpty()&&(stem||(hardware.size()>=2&&maxMid-minMid>20*u)))Imgproc.rectangle(wire,new Point(Math.max(w*.87,Math.round(minX-8*u)),Math.max(0,Math.round(minY-8*u))),new Point(w-1,Math.min(h-1,Math.round(maxY+10*u))),new Scalar(255),-1);
-        double limit=SceneAlignment.eval(curves[0],1);int lo=Math.max(0,(int)Math.round(limit-150*u)),hi=Math.min(h,(int)Math.round(limit+45*u)),left=(int)(w*.90);
-        Mat close=new Mat(),signal=new Mat(),k=Mat.ones(Math.max(9,(int)Math.round(24*u)),1,CvType.CV_8UC1);
+    }
+    /** One-sided contrast also detects narrow hardware clipped by the photograph boundary. */
+    static void edgeHardware(Mat wire,float[] g,double[][] curves,int w,int h,double u){
+        double span=SceneAlignment.eval(curves[0],1);int start=Math.max(0,w-(int)Math.round(65*u));
+        int lo=Math.max(0,(int)Math.round(span-150*u)),hi=Math.min(h,(int)Math.round(span+35*u));byte[] pixels=new byte[w*h];
+        for(int y=lo;y<hi;y++){
+            float[] sky=new float[Math.max(1,(int)Math.round(30*u))];for(int j=0;j<sky.length;j++)sky[j]=SceneAlignment.at(g,w,h,w-(int)Math.round(65*u)+j,y);
+            Arrays.sort(sky);double background=sky[sky.length/2];
+            for(int x=start;x<w;x++)if(g[y*w+x]<105&&g[y*w+x]<background-18)pixels[y*w+x]=(byte)255;
+        }
+        Mat evidence=new Mat(h,w,CvType.CV_8UC1),labels=new Mat(),stats=new Mat(),centres=new Mat(),selected=Mat.zeros(h,w,CvType.CV_8UC1);
         try{
-            Imgproc.morphologyEx(gray,close,Imgproc.MORPH_CLOSE,k);Core.subtract(close,gray,signal);byte[] values=bytes(signal);int active=0,first=h,last=0,min=w,miny=h;
-            for(int yy=lo;yy<hi;yy++){int n=0;for(int xx=left;xx<w;xx++){
-                boolean near=false;for(double[] co:curves)if(Math.abs(yy-Math.round(SceneAlignment.eval(co,xx/(double)w)))<=Math.round(9*u))near=true;
-                if(!near&&(values[yy*w+xx]&255)>12){n++;min=Math.min(min,xx);miny=Math.min(miny,yy);}
-            }if(n>4*u){active++;first=Math.min(first,yy);last=Math.max(last,yy);}}
-            if(active>5&&last-first>20*u)Imgproc.rectangle(wire,new Point(Math.max(left,Math.round(min-6*u)),Math.max(0,Math.round(miny-8*u))),new Point(w-1,Math.min(h-1,Math.round(limit+40*u))),new Scalar(255),-1);
-        }finally{close.release();signal.release();k.release();}
+            evidence.put(0,0,pixels);int count=Imgproc.connectedComponentsWithStats(evidence,labels,stats,centres);boolean[] keep=new boolean[count];
+            for(int c=1;c<count;c++){
+                int x=(int)stats.get(c,Imgproc.CC_STAT_LEFT)[0],cw=(int)stats.get(c,Imgproc.CC_STAT_WIDTH)[0],ch=(int)stats.get(c,Imgproc.CC_STAT_HEIGHT)[0],area=(int)stats.get(c,Imgproc.CC_STAT_AREA)[0];
+                double density=area/(double)(cw*ch);
+                keep[c]=x+cw>=w-2*u&&cw<=55*u&&ch<=160*u&&area>10*u*u&&(cw<8*u||ch<8*u||density<.75);
+            }
+            int[] components=new int[w*h];labels.get(0,0,components);for(int i=0;i<pixels.length;i++)pixels[i]=keep[components[i]]?(byte)255:0;
+            selected.put(0,0,pixels);int size=Math.max(3,((int)Math.round(9*u))|1);Mat k=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,new Size(size,size));
+            try{Imgproc.dilate(selected,selected,k);Core.bitwise_or(wire,selected,wire);}finally{k.release();}
+        }finally{evidence.release();labels.release();stats.release();centres.release();selected.release();}
+    }
+    /** Long bright cable runs can curve away from the straight sky span inside foliage. */
+    static void foliageCables(Mat wire,Mat treeLines,Mat gray,Mat tree,float[] g,int w,int h,double u){
+        int size=Math.max(5,((int)Math.round(9*u))|1);Mat k=Mat.ones(size,size,CvType.CV_8UC1),evidence=new Mat(),lines=new Mat();
+        try{
+            Imgproc.morphologyEx(gray,evidence,Imgproc.MORPH_TOPHAT,k);Imgproc.threshold(evidence,evidence,25,255,Imgproc.THRESH_BINARY);Core.bitwise_and(evidence,tree,evidence);
+            Imgproc.HoughLinesP(evidence,lines,1,Math.PI/720,Math.max(12,(int)Math.round(18*u)),35*u,8*u);
+            for(int i=0;i<lines.rows();i++){
+                double[] a=lines.get(i,0);double dx=a[2]-a[0],dy=a[3]-a[1],slope=Math.abs(dx)>1?dy/dx:-100;
+                if(slope>=-.4||slope<=-6||!supported(a,g,w,h,u,true,18))continue;
+                List<Point> path=Arrays.asList(new Point(a[0],a[1]),new Point(a[2],a[3]));line(wire,path,9*u);line(treeLines,path,9*u);
+            }
+        }finally{k.release();evidence.release();lines.release();}
     }
     /** Faint parallel lines below the main span: require long two-sided ridge evidence in the open sky only. */
     static void faintWires(Mat wire,Mat thin,float[] g,SceneAlignment.Pose p,byte[] foreground,int w,int h,double u){
@@ -181,16 +221,16 @@ final class ScenePlanner {
             }
         }finally{evidence.release();lines.release();}
     }
-    static void traceCables(Mat wire,List<double[]> lines,float[] g,byte[] tree,SceneAlignment.Pose p,double[][] curves,int w,int h,double u){
+    static void traceCables(Mat wire,Mat treeLines,List<double[]> lines,float[] g,byte[] tree,SceneAlignment.Pose p,double[][] curves,int w,int h,double u){
         double midY=(SceneAlignment.eval(curves[0],1)+p.y)/2;ArrayList<double[]> groups=new ArrayList<>();
         lines.sort((a,b)->Double.compare(Math.hypot(b[2]-b[0],b[3]-b[1]),Math.hypot(a[2]-a[0],a[3]-a[1])));
         for(double[] a:lines){if(Math.abs(a[3]-a[1])<30*u)continue;double m=(a[2]-a[0])/(a[3]-a[1]),b=a[0]-m*a[1],mx=m*midY+b;boolean duplicate=false;for(double[] q:groups)if(Math.abs(mx-q[0])<10*u&&Math.abs(m-q[1])<.25)duplicate=true;if(!duplicate)groups.add(new double[]{mx,m,b});}
         for(int group=0;group<Math.min(5,groups.size());group++){
-            double[] q=groups.get(group);ArrayList<Point> points=new ArrayList<>();int lo=Math.max(0,(int)Math.round(SceneAlignment.eval(curves[0],1)-35*u)),hi=Math.min(h,(int)Math.round(p.y+30*u));
+            double[] q=groups.get(group);ArrayList<Point> points=new ArrayList<>();int lo=Math.max(0,(int)Math.round(SceneAlignment.eval(curves[0],1)-35*u)),hi=Math.min(h,(int)Math.round(p.y+100*u));
             for(int y=lo;y<hi;y+=2){double expected=q[1]*y+q[2];if(expected<0||expected>=w)continue;int a=Math.max(4,(int)Math.round(expected-12*u)),b=Math.min(w-4,(int)Math.round(expected+12*u)+1);if(a>=b)continue;double best=-1;int center=(int)Math.round(expected);
                 int rr=Math.max(3,(int)Math.round(5*u));for(int x=a;x<b;x++){double score=0;for(int r:new int[]{rr,(int)Math.round(rr*1.6)}){double aa=SceneAlignment.at(g,w,h,x-r,y),bb=SceneAlignment.at(g,w,h,x+r,y),v=g[y*w+x];score=Math.max(score,Math.max(Math.min(aa,bb)-v,v-Math.max(aa,bb)));}if(score>best){best=score;center=x;}}
-                if(best<=5)center=(int)Math.round(expected);if(center<w*.58)continue;if(value(tree,w,h,center,y)!=0&&best<20)continue;points.add(new Point(center,y));
-            }if(points.size()>15)line(wire,points,15*u);
+                if(best<=5||(value(tree,w,h,center,y)!=0&&(best<20||Math.abs(center-expected)>6*u)))center=(int)Math.round(expected);if(center<w*.58)continue;points.add(new Point(center,y));
+            }if(points.size()>15){line(wire,points,15*u);line(treeLines,points,11*u);}
         }
     }
 }

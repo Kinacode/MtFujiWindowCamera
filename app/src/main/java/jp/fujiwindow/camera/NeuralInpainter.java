@@ -47,18 +47,18 @@ final class NeuralInpainter implements AutoCloseable {
         return process(original,wire,house,refine,null,progress,cancel);
     }
     Bitmap process(Bitmap original,Mat wire,Mat house,Mat refine,Mat thin,Progress progress,java.util.function.BooleanSupplier cancel)throws Exception {
-        return process(original,wire,house,refine,thin,null,null,progress,cancel);
+        return process(original,wire,house,refine,thin,null,null,null,progress,cancel);
     }
     Bitmap process(Bitmap original,ScenePlanner.Masks masks,Progress progress,java.util.function.BooleanSupplier cancel)throws Exception {
-        return process(original,masks.wire,masks.house,masks.refine,masks.thin,masks.main,masks.alignment.curves,progress,cancel);
+        return process(original,masks.wire,masks.house,masks.refine,masks.thin,masks.main,masks.alignment.curves,masks.alignment.pose,progress,cancel);
     }
-    private Bitmap process(Bitmap original,Mat wire,Mat house,Mat refine,Mat thin,Mat main,double[][] curves,Progress progress,java.util.function.BooleanSupplier cancel)throws Exception {
+    private Bitmap process(Bitmap original,Mat wire,Mat house,Mat refine,Mat thin,Mat main,double[][] curves,SceneAlignment.Pose pose,Progress progress,java.util.function.BooleanSupplier cancel)throws Exception {
         int w=original.getWidth(),h=original.getHeight();check(cancel);
         Mat rgba=new Mat(),rgb=new Mat(),generated=null;Bitmap filled=null;
         try{
             org.opencv.android.Utils.bitmapToMat(original,rgba);org.opencv.imgproc.Imgproc.cvtColor(rgba,rgb,org.opencv.imgproc.Imgproc.COLOR_RGBA2RGB);
-            boolean detail=refine!=null&&Core.countNonZero(refine)>0;int total=detail?2:1;
-            if(progress!=null)progress.update(0,total);generated=infer(rgb,wire,cancel);if(progress!=null)progress.update(1,total);
+            boolean detail=refine!=null&&Core.countNonZero(refine)>0;int base=InferenceCrops.tiles(w,h).size(),total=base+(detail?1:0)+(pose!=null?1:0);
+            if(progress!=null)progress.update(0,total);generated=inferTiles(rgb,wire,progress,total,cancel);
             if(detail){
                 Mat points=new Mat();org.opencv.core.Rect bounds;
                 try{Core.findNonZero(refine,points);bounds=org.opencv.imgproc.Imgproc.boundingRect(points);}finally{points.release();}
@@ -68,16 +68,51 @@ final class NeuralInpainter implements AutoCloseable {
                 org.opencv.core.Rect rect=new org.opencv.core.Rect(left,top,side,side);
                 Mat crop=rgb.submat(rect),mask=wire.submat(rect),target=generated.submat(rect),selected=refine.submat(rect),prediction=null;
                 try{prediction=infer(crop,mask,cancel);prediction.copyTo(target,selected);}finally{crop.release();mask.release();target.release();selected.release();if(prediction!=null)prediction.release();}
-                if(progress!=null)progress.update(2,total);
+                if(progress!=null)progress.update(base+1,total);
+            }
+            if(pose!=null){
+                InferenceCrops.Box b=InferenceCrops.foliage(pose,w,h);org.opencv.core.Rect rect=new org.opencv.core.Rect(b.x,b.y,b.size,b.size);
+                Mat crop=rgb.submat(rect),mask=wire.submat(rect),target=generated.submat(rect),prediction=null;
+                try{
+                    prediction=infer(crop,mask,cancel);int n=b.size*b.size;
+                    byte[] before=new byte[n*3],local=new byte[n*3],holes=new byte[n];target.get(0,0,before);prediction.get(0,0,local);mask.get(0,0,holes);
+                    for(int y=0;y<b.size;y++)for(int x=0;x<b.size;x++){
+                        int i=y*b.size+x;if(holes[i]==0)continue;double mix=InferenceCrops.foliageWeight(pose,b.x+x,b.y+y);if(mix==0)continue;
+                        for(int c=0;c<3;c++)before[i*3+c]=(byte)Math.round((before[i*3+c]&255)*(1-mix)+(local[i*3+c]&255)*mix);
+                    }target.put(0,0,before);
+                }finally{crop.release();mask.release();target.release();if(prediction!=null)prediction.release();}
+                if(progress!=null)progress.update(total,total);
             }
             check(cancel);byte[] rgbBytes=new byte[w*h*3];generated.get(0,0,rgbBytes);byte[] removal=new byte[w*h];wire.get(0,0,removal);
             int[] source=new int[w*h],output=new int[w*h];original.getPixels(source,0,w,0,0,w,h);System.arraycopy(source,0,output,0,source.length);
             for(int i=0;i<output.length;i++)if(removal[i]!=0)output[i]=0xff000000|((rgbBytes[i*3]&255)<<16)|((rgbBytes[i*3+1]&255)<<8)|(rgbBytes[i*3+2]&255);
             if(thin!=null)ConstrainedRepair.apply(original,output,wire,thin);
             if(main!=null){byte[] primary=new byte[w*h];main.get(0,0,primary);SmoothSkyRepair.apply(source,output,primary,removal,curves,w,h);}
+            if(main!=null){byte[] primary=new byte[w*h];main.get(0,0,primary);LocalBoundaryRepair.apply(source,output,removal,primary,w,h);}
             MaskBlend.apply(source,output,wire,w,h);check(cancel);filled=Bitmap.createBitmap(output,w,h,Bitmap.Config.ARGB_8888);Mat empty=Mat.zeros(h,w,CvType.CV_8UC1);
             try{return LocalProcessor.applyMasks(filled,empty,house);}finally{empty.release();}
         }finally{rgba.release();rgb.release();if(generated!=null)generated.release();if(filled!=null)filled.recycle();}
+    }
+    Mat inferTiles(Mat rgb,Mat wire,Progress progress,int total,java.util.function.BooleanSupplier cancel)throws Exception {
+        int w=rgb.cols(),h=rgb.rows(),n=w*h;float[] r=new float[n],g=new float[n],b=new float[n],weight=new float[n];
+        byte[] removal=new byte[n];wire.get(0,0,removal);int done=0;
+        for(InferenceCrops.Box box:InferenceCrops.tiles(w,h)){
+            check(cancel);org.opencv.core.Rect rect=new org.opencv.core.Rect(box.x,box.y,box.size,box.size);
+            Mat crop=rgb.submat(rect),mask=wire.submat(rect),prediction=null;
+            try{
+                if(Core.countNonZero(mask)>0){
+                    prediction=infer(crop,mask,cancel);byte[] pixels=new byte[box.size*box.size*3];prediction.get(0,0,pixels);
+                    for(int y=0;y<box.size;y++)for(int x=0;x<box.size;x++){
+                        int i=(box.y+y)*w+box.x+x;if(removal[i]==0)continue;int j=(y*box.size+x)*3;
+                        float q=Math.min(box.size/8f,Math.min(Math.min(x+1,box.size-x),Math.min(y+1,box.size-y)));
+                        r[i]+=(pixels[j]&255)*q;g[i]+=(pixels[j+1]&255)*q;b[i]+=(pixels[j+2]&255)*q;weight[i]+=q;
+                    }
+                }
+            }finally{crop.release();mask.release();if(prediction!=null)prediction.release();}
+            if(progress!=null)progress.update(++done,total);
+        }
+        byte[] pixels=new byte[n*3];for(int i=0;i<n;i++)if(weight[i]>0){pixels[i*3]=(byte)Math.round(r[i]/weight[i]);pixels[i*3+1]=(byte)Math.round(g[i]/weight[i]);pixels[i*3+2]=(byte)Math.round(b[i]/weight[i]);}
+        Mat result=new Mat(h,w,CvType.CV_8UC3);result.put(0,0,pixels);return result;
     }
     Mat infer(Mat rgb,Mat wire,java.util.function.BooleanSupplier cancel)throws Exception {
         check(cancel);Mat image=new Mat(),mask=new Mat(),prediction=new Mat(512,512,CvType.CV_8UC3),resized=new Mat();

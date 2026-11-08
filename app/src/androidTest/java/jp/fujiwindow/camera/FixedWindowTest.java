@@ -5,6 +5,27 @@ import static org.junit.Assert.*;
 
 /** Public synthetic fixtures only; the ten supplied real photographs remain private. */
 public class FixedWindowTest {
+    @Test public void equipmentCutByTheRightPhotoEdgeIsStillMasked(){
+        Bitmap b=fixture(0);Canvas c=new Canvas(b);Paint p=new Paint();p.setColor(Color.rgb(12,16,20));
+        c.drawRect(717,270,720,340,p);c.drawRect(690,290,720,296,p);
+        try(FixedWindow.Plan plan=FixedWindow.plan(b,true)){
+            assertTrue("cropped stem must not need pixels outside the photo",plan.wire.get(310,719)[0]>0);
+        }finally{b.recycle();}
+    }
+    @Test public void remoteCloudStreakDoesNotExpandRightHandEquipmentMask(){
+        Bitmap b=fixture(0);Canvas c=new Canvas(b);Paint p=new Paint();p.setColor(Color.DKGRAY);p.setStrokeWidth(8);
+        c.drawLine(690,30,690,140,p);c.drawLine(690,100,720,100,p);
+        try(FixedWindow.Plan plan=FixedWindow.plan(b,true)){
+            assertEquals("unrelated cloud far above the span remains original",0,plan.wire.get(80,690)[0],0);
+        }finally{b.recycle();}
+    }
+    @Test public void shortBrightTwigInsideFoliageIsNotTreatedAsCable(){
+        Bitmap b=fixture(0);Canvas c=new Canvas(b);Paint p=new Paint();p.setColor(Color.rgb(140,160,130));p.setStrokeWidth(2);
+        c.drawLine(455*U,640*U,470*U,625*U,p);
+        try(FixedWindow.Plan plan=FixedWindow.plan(b,true)){
+            assertEquals("short leaf detail is not a cable from the sky",0,plan.wire.get((int)(632*U),(int)(462*U))[0],0);
+        }finally{b.recycle();}
+    }
     static final int W=720,H=960;static final float U=1.25f;
     Bitmap fixture(double shift){
         Bitmap b=Bitmap.createBitmap(W,H,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);c.drawColor(Color.rgb(130,180,220));Paint p=new Paint(3);

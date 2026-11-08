@@ -12,6 +12,19 @@ import static org.junit.Assert.*;
 
 /** Executes the actual packaged neural weights, not a substitute or mocked inference. */
 public class NeuralInpainterTest {
+    @Test public void cancellationBetweenSquareContextsDoesNotReturnPartialResult()throws Exception{
+        assertTrue(OpenCVLoader.initLocal());Context c=InstrumentationRegistry.getInstrumentation().getTargetContext();
+        Bitmap source=Bitmap.createBitmap(360,600,Bitmap.Config.ARGB_8888);source.eraseColor(Color.rgb(100,150,205));
+        Mat wire=Mat.zeros(600,360,CvType.CV_8UC1),house=wire.clone();
+        Imgproc.rectangle(wire,new org.opencv.core.Point(0,280),new org.opencv.core.Point(359,310),new Scalar(255),-1);
+        java.util.concurrent.atomic.AtomicBoolean cancel=new java.util.concurrent.atomic.AtomicBoolean();
+        try(NeuralInpainter ai=new NeuralInpainter(c)){
+            try{ai.process(source,wire,house,(done,total)->{if(done==1)cancel.set(true);},cancel::get);fail("cancel after first inference");}
+            catch(CancellationException expected){}
+            assertTrue("one actual model context completed",cancel.get());
+            assertEquals(Color.rgb(100,150,205),source.getPixel(180,295));
+        }finally{wire.release();house.release();source.recycle();}
+    }
     @Test public void realNetworkRemovesWireAndKeepsUnmaskedPixels()throws Exception{
         assertTrue(OpenCVLoader.initLocal());Context c=InstrumentationRegistry.getInstrumentation().getTargetContext();
         Bitmap b=Bitmap.createBitmap(512,512,Bitmap.Config.ARGB_8888);b.eraseColor(Color.rgb(105,160,210));Canvas canvas=new Canvas(b);Paint pen=new Paint();pen.setColor(Color.rgb(10,10,10));canvas.drawRect(0,250,512,259,pen);
