@@ -23,7 +23,7 @@ final class ConstrainedRepair {
             temporary=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);Utils.matToBitmap(filled,temporary);
             int[] pixels=new int[w*h];temporary.getPixels(pixels,0,w,0,0,w,h);
             Imgproc.distanceTransform(local,distance,Imgproc.DIST_L2,3);float[] depth=new float[w*h];distance.get(0,0,depth);
-            double maxDepth=10*Math.min(w,h)/576.0;
+            double maxDepth=Math.max(5,10*Math.min(w,h)/576.0);
             for(int i=0;i<output.length;i++)if(selected[i]!=0&&removal[i]!=0&&depth[i]<=maxDepth)output[i]=pixels[i];
         }finally{if(temporary!=null)temporary.recycle();rgba.release();rgb.release();filled.release();distance.release();local.release();}
     }
