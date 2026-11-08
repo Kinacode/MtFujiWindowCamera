@@ -3,8 +3,8 @@ package jp.fujiwindow.camera;
 /** Evidence-gated RGB continuation in secondary wire/equipment holes. Fits two-dimensional
  * known source context, including at a photo edge, and rejects textured or mixed boundaries. */
 final class LocalBoundaryRepair {
-    static void apply(int[] source,int[] output,byte[] holes,byte[] primary,int w,int h){
-        byte[] target=new byte[w*h];for(int i=0;i<holes.length;i++)if(holes[i]!=0&&primary[i]==0)target[i]=1;
+    static void apply(int[] source,int[] output,byte[] holes,byte[] primary,SceneAlignment.Pose pose,int w,int h){
+        byte[] target=new byte[w*h];for(int i=0;i<holes.length;i++)if(holes[i]!=0&&primary[i]==0&&(pose==null||InferenceCrops.foliageWeight(pose,i%w,i/w)==0))target[i]=1;
         // A locally flat patch on just one side must not erase a real boundary hidden by a wire.
         for(int y=0;y<h;y++)for(int x=0;x<w;){
             if(holes[y*w+x]==0){x++;continue;}int left=x;while(x<w&&holes[y*w+x]!=0)x++;int right=x;

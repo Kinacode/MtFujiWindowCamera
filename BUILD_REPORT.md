@@ -19,7 +19,7 @@
 
 最終設定で全10枚の加工・後処理が完了し、マスク／ぼかし外のデコード済み画素の一致を10枚それぞれ検査。木の白い縁、反射ケーブル、横写真の設備補完痕を前版と比較しました。全画像が違和感なく仕上がるという完成条件を満たしたと保証するものではありません。画像・比較結果は利用者向けの私有ZIPに保存します。
 
-ローカル assembleDebug / lintDebug / testDebugUnitTest / assembleDebugAndroidTest は成功。JVMは15件。Androidでは27件の計装テストをActionsで実行します。端の滑らかな背景に少量の電線跡が混ざる場合も、周辺既知画素の95%以上が一貫する場合に限って外れ値を除いて補間します。
+ローカル assembleDebug / lintDebug / testDebugUnitTest / assembleDebugAndroidTest は成功。JVMは16件。Androidでは27件の計装テストをActionsで実行します。端の滑らかな背景に少量の電線跡が混ざる場合も、周辺既知画素の95%以上が一貫する場合に限って外れ値を除いて補間します。
 
 ## 配布
 

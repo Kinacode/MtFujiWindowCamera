@@ -88,7 +88,7 @@ final class NeuralInpainter implements AutoCloseable {
             for(int i=0;i<output.length;i++)if(removal[i]!=0)output[i]=0xff000000|((rgbBytes[i*3]&255)<<16)|((rgbBytes[i*3+1]&255)<<8)|(rgbBytes[i*3+2]&255);
             if(thin!=null)ConstrainedRepair.apply(original,output,wire,thin);
             if(main!=null){byte[] primary=new byte[w*h];main.get(0,0,primary);SmoothSkyRepair.apply(source,output,primary,removal,curves,w,h);}
-            if(main!=null){byte[] primary=new byte[w*h];main.get(0,0,primary);LocalBoundaryRepair.apply(source,output,removal,primary,w,h);}
+            if(main!=null){byte[] primary=new byte[w*h];main.get(0,0,primary);LocalBoundaryRepair.apply(source,output,removal,primary,pose,w,h);}
             MaskBlend.apply(source,output,wire,w,h);check(cancel);filled=Bitmap.createBitmap(output,w,h,Bitmap.Config.ARGB_8888);Mat empty=Mat.zeros(h,w,CvType.CV_8UC1);
             try{return LocalProcessor.applyMasks(filled,empty,house);}finally{empty.release();}
         }finally{rgba.release();rgb.release();if(generated!=null)generated.release();if(filled!=null)filled.recycle();}
