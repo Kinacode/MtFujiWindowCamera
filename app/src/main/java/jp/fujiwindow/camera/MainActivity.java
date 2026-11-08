@@ -72,7 +72,7 @@ public class MainActivity extends ComponentActivity {
         LinearLayout zoomSide=new LinearLayout(this);zoomSide.setGravity(Gravity.CENTER);cameraPanel.addView(zoomSide,new LinearLayout.LayoutParams(0,-2,1));zoomButton=action("1×",()->{if(activeCamera!=null&&activeCamera.getCameraInfo().getZoomState().getValue()!=null){float current=activeCamera.getCameraInfo().getZoomState().getValue().getZoomRatio();setZoom(current<1.8f?2f:1f);}},false);zoomButton.setContentDescription("ズーム倍率を切り替える");zoomSide.addView(zoomButton,new LinearLayout.LayoutParams(Style.dp(this,52),Style.dp(this,40)));workspace.addView(cameraPanel);
         editPanel=new LinearLayout(this);editPanel.setOrientation(LinearLayout.VERTICAL);
         editorTools=new LinearLayout(this);Style.padding(editorTools,10,4);addTool(editorTools,"この窓",this::selectMode,false);addTool(editorTools,"比較",this::compare,false);cancelButton=Style.button(this,"処理を中止",false);cancelButton.setVisibility(View.GONE);cancelButton.setOnClickListener(v->{cancelAi=true;cancelButton.setEnabled(false);message("AI処理を中止しています。元写真は保持されます。");});editorTools.addView(cancelButton,new LinearLayout.LayoutParams(0,Style.dp(this,48),1));frame.addView(editorTools,new FrameLayout.LayoutParams(-1,Style.dp(this,60),Gravity.TOP));
-        aligned=new CheckBox(this);aligned.setText("見本と同じ窓・縦3:4の画角です");aligned.setTextColor(Style.INK);aligned.setTextSize(12);editPanel.addView(aligned);aligned.setVisibility(View.GONE);
+        aligned=new CheckBox(this);aligned.setText("同じ窓の電線と支柱を確認して加工します");aligned.setTextColor(Style.INK);aligned.setTextSize(12);editPanel.addView(aligned);aligned.setVisibility(View.GONE);
         keepOriginal=new CheckBox(this);keepOriginal.setText("元写真も別に保存する");keepOriginal.setTextColor(Style.MUTED);keepOriginal.setTextSize(12);keepOriginal.setChecked(true);editPanel.addView(keepOriginal);keepOriginal.setVisibility(View.GONE);
         mountainFill=new Switch(this);mountainFill.setText("山の重なりを補完（推定）");mountainFill.setTextSize(12);mountainFill.setTextColor(Style.INK);Style.padding(mountainFill,16,4);mountainFill.setMinHeight(Style.dp(this,48));mountainFill.setChecked(getPreferences(0).getBoolean("complete_mountain",true));mountainFill.setOnCheckedChangeListener((v,checked)->{getPreferences(0).edit().putBoolean("complete_mountain",checked).apply();if(result!=null){photo.setImageBitmap(original);result.recycle();result=null;showResult=false;}message(checked?"設備に隠れた山肌や輪郭を周辺画素から推定します。元写真と比較して保存してください。":"山の保護を優先します。重なった設備は残ります。");});editPanel.addView(mountainFill);
         LinearLayout finish=new LinearLayout(this);Style.padding(finish,10,4);processButton=addTool(finish,"AI加工",this::process,false);addTool(finish,"保存",this::save,true);editPanel.addView(finish);workspace.addView(editPanel);
@@ -187,8 +187,8 @@ public class MainActivity extends ComponentActivity {
     }
     void selectMode(){
         new android.app.AlertDialog.Builder(this).setTitle("加工する窓").setSingleChoiceItems(new String[]{"この窓に固定（範囲指定なし）","手動で範囲を指定（従来モード）"},fixedWindow?0:1,(d,which)->{
-            fixedWindow=which==0;processButton.setText(fixedWindow?"AI加工":"手動加工");mountainFill.setVisibility(fixedWindow?View.VISIBLE:View.GONE);aligned.setVisibility(fixedWindow?View.GONE:View.VISIBLE);if(result!=null){photo.setImageBitmap(original);result.recycle();result=null;showResult=false;}aligned.setChecked(false);aligned.setText(fixedWindow?"見本と同じ窓・縦3:4の画角です":"山と稜線が保護範囲に入っている");d.dismiss();
-            if(fixedWindow){masks.editing=false;masks.regions.clear();masks.overlays=false;masks.invalidate();message("この窓の電線・住宅に固定。見本と同じ画角であることを確認して加工できます。稜線付近は残します。");}
+            fixedWindow=which==0;processButton.setText(fixedWindow?"AI加工":"手動加工");mountainFill.setVisibility(fixedWindow?View.VISIBLE:View.GONE);aligned.setVisibility(fixedWindow?View.GONE:View.VISIBLE);if(result!=null){photo.setImageBitmap(original);result.recycle();result=null;showResult=false;}aligned.setChecked(false);aligned.setText(fixedWindow?"同じ窓の電線と支柱を確認して加工します":"山と稜線が保護範囲に入っている");d.dismiss();
+            if(fixedWindow){masks.editing=false;masks.regions.clear();masks.overlays=false;masks.invalidate();message("この窓の電線と支柱から位置を合わせます。横位置の読み込み写真にも対応します。");}
             else editMasks();
         }).setNegativeButton("閉じる",null).show();
     }
@@ -225,7 +225,7 @@ public class MainActivity extends ComponentActivity {
     Bitmap processWithEngine(boolean preset,boolean restore,java.util.List<MaskView.Region> regions)throws Exception{
         if(!preset)return LocalProcessor.process(original,regions);
         try(FixedWindow.Plan plan=FixedWindow.plan(original,restore);NeuralInpainter engine=new NeuralInpainter(this)){
-            return engine.process(original,plan.wire,plan.house,plan.repair,(done,total)->runOnUiThread(()->{if(!isDestroyed()&&!cancelAi)message("AI加工 "+done+" / "+total+"  ·  端末内で処理中");}),()->cancelAi);
+            return engine.process(original,plan.masks,(done,total)->runOnUiThread(()->{if(!isDestroyed()&&!cancelAi)message("AI加工 "+done+" / "+total+"  ·  端末内で処理中");}),()->cancelAi);
         }
     }
     void compare(){if(original==null)return;showResult=!showResult&&result!=null;photo.setImageBitmap(showResult?result:original);masks.overlays=!showResult&&!fixedWindow;masks.invalidate();message(showResult?(completedMountain?"加工後（山の重なりを推定補完）":"加工後プレビュー"):fixedWindow?"元写真。空の色と、補完した山肌や輪郭を比較してください。":"元画像（範囲表示）。保護範囲を確認してください。");}

@@ -2,7 +2,8 @@ plugins { id 'com.android.application' }
 android {
  namespace 'jp.fujiwindow.camera'
  compileSdk 35
- defaultConfig { applicationId 'jp.fujiwindow.camera'; minSdk 29; targetSdk 35; versionCode 13; versionName '1.6.4'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner' }
+ defaultConfig { manifestPlaceholders = [appLabel:'富士窓カメラ']; applicationId 'jp.fujiwindow.camera'; minSdk 29; targetSdk 35; versionCode 14; versionName '1.7.0'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner' }
+ buildTypes { debug { applicationIdSuffix '.preview'; versionNameSuffix '-preview'; manifestPlaceholders = [appLabel:'富士窓カメラ 検証版'] } }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 dependencies {
@@ -19,10 +20,10 @@ dependencies {
  androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
 }
 
-// Official MI-GAN weights (MIT). Download at build time; never download/upload photos at runtime.
+// LaMa ONNX weights (Apache-2.0). Download at build time; never download/upload photos at runtime.
 def aiAssetFolder = layout.buildDirectory.dir("generated/aiAssets").get().asFile
-def modelName = 'migan_pipeline_v2.onnx'
-def modelHash = '6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b'
+def modelName = 'lama_fp32.onnx'
+def modelHash = '1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6'
 def checksum = { File f ->
  def md = java.security.MessageDigest.getInstance('SHA-256')
  f.withInputStream { input -> byte[] buffer = new byte[65536]; int n; while ((n = input.read(buffer)) != -1) md.update(buffer, 0, n) }
@@ -33,14 +34,15 @@ tasks.register('prepareNeuralModel') {
  outputs.file(new File(aiAssetFolder, modelName))
  doLast {
   aiAssetFolder.mkdirs()
+  aiAssetFolder.listFiles()?.findAll { it.name.endsWith(".onnx") && it.name != modelName }?.each { it.delete() }
   def destination = new File(aiAssetFolder, modelName)
   if (destination.exists() && checksum(destination) == modelHash) return
   def temporary = new File(aiAssetFolder, modelName + '.download')
   try {
-   def connection = new URL('https://huggingface.co/andraniksargsyan/migan/resolve/406830d0fa60666da0071c342ad2fbc8f30c5c64/migan_pipeline_v2.onnx').openConnection()
+   def connection = new URL('https://huggingface.co/Carve/LaMa-ONNX/resolve/c3c0c9e468934d62e79c329e35d82dd09ff8c444/lama_fp32.onnx').openConnection()
    connection.connectTimeout = 30000; connection.readTimeout = 180000
    connection.inputStream.withCloseable { input -> temporary.withOutputStream { output -> input.transferTo(output) } }
-   if (checksum(temporary) != modelHash) throw new GradleException('MI-GAN model checksum mismatch')
+   if (checksum(temporary) != modelHash) throw new GradleException('LaMa model checksum mismatch')
    java.nio.file.Files.move(temporary.toPath(), destination.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
   } finally { temporary.delete() }
  }

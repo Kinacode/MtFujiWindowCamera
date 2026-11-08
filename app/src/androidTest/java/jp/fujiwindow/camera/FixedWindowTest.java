@@ -1,83 +1,70 @@
 package jp.fujiwindow.camera;
 import android.graphics.*;
 import org.junit.Test;
-import java.util.*;
 import static org.junit.Assert.*;
 
+/** Public synthetic fixtures only; the ten supplied real photographs remain private. */
 public class FixedWindowTest {
-    Bitmap fixture(double shift){Bitmap b=Bitmap.createBitmap(720,960,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);c.drawColor(Color.rgb(130,180,220));Paint p=new Paint(3);p.setColor(Color.rgb(20,30,35));p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(3.5f);for(int k=0;k<3;k++){Path path=new Path();for(int x=0;x<720;x++){float y=(float)((FixedWindow.wireY(k,x/719.0)+shift)*960);if(x==0)path.moveTo(x,y);else path.lineTo(x,y);}c.drawPath(path,p);}p.setStyle(Paint.Style.FILL);p.setColor(Color.GRAY);Path mountain=new Path();mountain.moveTo(180,795);mountain.lineTo(340,700);mountain.lineTo(400,700);mountain.lineTo(565,800);mountain.close();c.drawPath(mountain,p);return b;}
-    @Test public void fixedModeTracksAndPreservesOriginalAndAllUnmaskedPixels(){
-        Bitmap source=fixture(.018);int[] before=new int[720*960];source.getPixels(before,0,720,0,0,720,960);
-        try(FixedWindow.Plan p=FixedWindow.plan(source)){
-            assertTrue(Math.abs(p.shift-.018)<.012);Bitmap result=LocalProcessor.applyMasks(source,p.wire,p.house);
-            byte[] w=new byte[before.length],h=new byte[before.length],guard=new byte[before.length];p.wire.get(0,0,w);p.house.get(0,0,h);p.protect.get(0,0,guard);boolean changed=false;
-            int[] after=new int[before.length],input=new int[before.length];result.getPixels(after,0,720,0,0,720,960);source.getPixels(input,0,720,0,0,720,960);
-            for(int i=0;i<before.length;i++){assertEquals(before[i],input[i]);if((w[i]==0&&h[i]==0)||guard[i]!=0)assertEquals("outside masks / mountain protection",before[i],after[i]);else if(before[i]!=after[i])changed=true;}
-            int sx=360,sy=(int)Math.round((FixedWindow.wireY(0,sx/719.0)+.018)*960);assertTrue("wire pixel filled from surrounding sky",FixedWindow.luminance(result.getPixel(sx,sy))>FixedWindow.luminance(source.getPixel(sx,sy))+30);
-            assertTrue(changed);assertEquals(source.getPixel(370,730),result.getPixel(370,730));result.recycle();
+    static final int W=720,H=960;static final float U=1.25f;
+    Bitmap fixture(double shift){
+        Bitmap b=Bitmap.createBitmap(W,H,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);c.drawColor(Color.rgb(130,180,220));Paint p=new Paint(3);
+        p.setColor(Color.rgb(20,30,35));p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(3.5f);
+        for(int k=0;k<3;k++){Path path=new Path();for(int x=0;x<W;x++){float y=(float)((FixedWindow.wireY(k,x/719.0)+shift)*H);if(x==0)path.moveTo(x,y);else path.lineTo(x,y);}c.drawPath(path,p);}
+        p.setStyle(Paint.Style.FILL);p.setColor(Color.GRAY);Path mountain=new Path();mountain.moveTo(180,795);mountain.lineTo(340,700);mountain.lineTo(400,700);mountain.lineTo(565,800);mountain.close();c.drawPath(mountain,p);
+        p.setColor(Color.rgb(20,50,30));c.drawOval(new RectF(405*U,585*U,515*U,695*U),p);
+        p.setColor(Color.rgb(12,16,20));p.setStrokeWidth(8*U);c.drawLine(279*U,610*U,279*U,700*U,p);
+        p.setStrokeWidth(5*U);c.drawLine(279*U,623*U,341*U,625*U,p);c.drawLine(341*U,625*U,341*U,675*U,p);
+        return b;
+    }
+    @Test public void tracksAllThreeWiresAndKeepsSourceAndUnmaskedPixels(){
+        Bitmap source=fixture(.018);int[] before=new int[W*H];source.getPixels(before,0,W,0,0,W,H);
+        try(FixedWindow.Plan p=FixedWindow.plan(source,false)){
+            assertEquals(.018,p.shift,.012);for(int q:p.masks.alignment.confidence)assertTrue(q>=58);
+            Bitmap result=LocalProcessor.applyMasks(source,p.wire,p.house);byte[] wire=ScenePlanner.bytes(p.wire),house=ScenePlanner.bytes(p.house),protectedArea=ScenePlanner.bytes(p.protect);
+            int[] after=new int[before.length],input=new int[before.length];result.getPixels(after,0,W,0,0,W,H);source.getPixels(input,0,W,0,0,W,H);assertArrayEquals(before,input);
+            for(int i=0;i<before.length;i++)if((wire[i]==0&&house[i]==0)||protectedArea[i]!=0)assertEquals("outside masks / protected mountain",before[i],after[i]);
+            int x=360,y=(int)Math.round((FixedWindow.wireY(0,x/719.0)+.018)*H);assertTrue(FixedWindow.luminance(result.getPixel(x,y))>FixedWindow.luminance(source.getPixel(x,y))+30);result.recycle();
         }finally{source.recycle();}
     }
-    @Test public void mountainEquipmentIsInpaintedOnlyWhenEnabled(){
-        Bitmap b=fixture(0);Canvas c=new Canvas(b);Paint p=new Paint();p.setColor(Color.rgb(10,12,14));p.setStrokeWidth(9);c.drawLine(720*.49f,960*.77f,720*.49f,960*.85f,p);c.drawLine(720*.49f,960*.80f,720*.61f,960*.80f,p);
-        int x=(int)(720*.49),y=(int)(960*.82);int[] original=new int[720*960];b.getPixels(original,0,720,0,0,720,960);
-        try(FixedWindow.Plan strict=FixedWindow.plan(b,false);FixedWindow.Plan fill=FixedWindow.plan(b,true)){
-            assertEquals(0,strict.wire.get(y,x)[0],0);assertTrue(fill.wire.get(y,x)[0]>0);
-            Bitmap result=LocalProcessor.applyMasks(b,fill.wire,fill.house);int[] after=new int[original.length],source=new int[original.length];result.getPixels(after,0,720,0,0,720,960);b.getPixels(source,0,720,0,0,720,960);
-            byte[] wire=new byte[original.length],house=new byte[original.length];fill.wire.get(0,0,wire);fill.house.get(0,0,house);
-            for(int i=0;i<original.length;i++){assertEquals(original[i],source[i]);if(wire[i]==0&&house[i]==0)assertEquals("completion must be local",original[i],after[i]);}
-            assertTrue("dark pole over mountain is filled",FixedWindow.luminance(result.getPixel(x,y))>FixedWindow.luminance(b.getPixel(x,y))+30);
-            assertEquals("unoccluded summit untouched",b.getPixel(370,705),result.getPixel(370,705));result.recycle();
+    @Test public void mountainEquipmentIsOptionalAndClearSummitIsNeverMasked(){
+        Bitmap b=fixture(0);
+        try(FixedWindow.Plan strict=FixedWindow.plan(b,false);FixedWindow.Plan full=FixedWindow.plan(b,true)){
+            SceneAlignment.Pose pose=full.masks.alignment.pose;org.opencv.core.Point pole=ScenePlanner.point(pose,279,618),summit=ScenePlanner.point(pose,290,585);
+            int x=(int)Math.round(pole.x),y=(int)Math.round(pole.y);
+            assertEquals(0,strict.wire.get(y,x)[0],0);assertTrue(full.wire.get(y,x)[0]>0);
+            assertEquals("source summit kept",0,full.wire.get((int)summit.y,(int)summit.x)[0],0);
         }finally{b.recycle();}
     }
-    @Test public void suppliedVerticalOffsetIsAccepted(){
-        Bitmap b=fixture(.046);
+    @Test public void acceptsLargeWireDisplacementIndependentlyOfScene(){
+        Bitmap b=fixture(.09);try(FixedWindow.Plan p=FixedWindow.plan(b,true)){assertEquals(.09,p.shift,.012);assertTrue(p.masks.alignment.pose.score>20);}finally{b.recycle();}
+    }
+    @Test public void acceptsLandscapePhotoWithTheSameVisibleLandmarks(){
+        Bitmap portrait=fixture(0),landscape=Bitmap.createBitmap(960,720,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(landscape);c.drawColor(Color.rgb(130,180,220));c.drawBitmap(portrait,120,-240,null);
+        Paint p=new Paint(3);p.setColor(Color.rgb(20,30,35));p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(3.5f);
+        for(int k=0;k<3;k++){Path line=new Path();for(int x=0;x<960;x++){float y=(float)(FixedWindow.wireY(k,(x-120)/719.0)*960-240);if(x==0)line.moveTo(x,y);else line.lineTo(x,y);}c.drawPath(line,p);}
+        try(FixedWindow.Plan plan=FixedWindow.plan(landscape,true)){for(int q:plan.masks.alignment.confidence)assertTrue(q>=58);assertTrue(plan.masks.alignment.pose.x>400);}finally{portrait.recycle();landscape.recycle();}
+    }
+    @Test public void treeIsNotBlurredAndBuildingBoundaryKeepsOriginalPixels(){
+        Bitmap b=fixture(0);Canvas c=new Canvas(b);Paint ink=new Paint();ink.setColor(Color.rgb(12,14,18));c.drawRect(0,806,210,960,ink);
         try(FixedWindow.Plan p=FixedWindow.plan(b,true)){
-            assertEquals(.046,p.shift,.012);
-            int x=360,y=(int)((FixedWindow.wireY(0,x/719.0)+.046)*960);
-            assertTrue(p.wire.get(y,x)[0]>0);
+            org.opencv.core.Point tree=ScenePlanner.point(p.masks.alignment.pose,465,680);
+            assertEquals("tree canopy excluded",0,p.house.get((int)tree.y,(int)tree.x)[0],0);
+            assertEquals("roof contour unblurred",0,p.house.get(806,70)[0],0);
+            assertTrue("interior of buildings is blurred",p.house.get(925,70)[0]>200);
+            assertEquals("sky untouched by blur",0,p.house.get(300,100)[0],0);
         }finally{b.recycle();}
     }
-    @Test public void markedResidualWiresCrossbarAndLeftEdgeOfPostAreCovered(){
-        Bitmap b=fixture(0);Canvas c=new Canvas(b);Paint ink=new Paint();ink.setColor(Color.rgb(20,25,30));
-        ink.setStrokeWidth(2);c.drawLine(0,960*.79f,720*.26f,960*.78f,ink);
-        ink.setStrokeWidth(7);c.drawLine(720*.9f,960*.647f,719,960*.641f,ink);
-        ink.setStrokeWidth(8);c.drawLine(720*.455f,960*.78f,720*.455f,960*.87f,ink);
-        try(FixedWindow.Plan p=FixedWindow.plan(b,true);FixedWindow.Plan strict=FixedWindow.plan(b,false)){
-            assertTrue("faint low left wire",p.wire.get((int)(960*.785),(int)(720*.13))[0]>0);
-            assertTrue("right horizontal crossbar",p.wire.get((int)(960*.644),(int)(720*.95))[0]>0);
-            assertTrue("left edge of mountain post",p.wire.get((int)(960*.82),(int)(720*.455))[0]>0);
-            assertEquals("mountain remains protected when disabled",0,strict.wire.get((int)(960*.82),(int)(720*.455))[0],0);
-            assertEquals("clear summit stays unmasked",0,p.wire.get(710,370)[0],0);
-        }finally{b.recycle();}
+    @Test public void alignmentScalesWithImageResolution(){
+        Bitmap small=fixture(.018),large=Bitmap.createScaledBitmap(small,1440,1920,true);
+        try(FixedWindow.Plan a=FixedWindow.plan(small,true);FixedWindow.Plan b=FixedWindow.plan(large,true)){
+            assertEquals(a.masks.alignment.pose.x*2,b.masks.alignment.pose.x,8);assertEquals(a.masks.alignment.pose.y*2,b.masks.alignment.pose.y,8);
+            assertEquals(a.masks.alignment.pose.scale*2,b.masks.alignment.pose.scale,.15);
+        }finally{small.recycle();large.recycle();}
     }
-    @Test public void foregroundBlurKeepsTreeAndRoofBoundary(){
-        Bitmap b=fixture(0);Canvas canvas=new Canvas(b);Paint ink=new Paint();ink.setColor(Color.BLACK);ink.setStrokeWidth(5);canvas.drawLine(720*.51f,960*.78f,720*.51f,960*.84f,ink);
-        try(FixedWindow.Plan p=FixedWindow.plan(b,true)){
-            for(double x:new double[]{0,.1,.3,.5,.7,.8,.9,.999}){
-                assertTrue("entire lower foreground",p.house.get((int)(960*.95),(int)(719*x))[0]>250);
-            }
-            assertEquals("tree excluded",0,p.house.get((int)(960*.81),(int)(720*.80))[0],0);
-            int roofX=(int)(720*.05),first=0;
-            while(first<960&&p.house.get(first,roofX)[0]==0)first++;
-            assertTrue("corrected boundary stays in foreground corridor",first>960*.79&&first<960*.87);
-            assertTrue("first affected row has a gentle alpha",p.house.get(first,roofX)[0]<30);
-            assertTrue("blur increases inward",p.house.get(Math.min(959,first+30),roofX)[0]>200);
-            assertEquals("summit excluded",0,p.house.get(710,370)[0],0);
-            assertEquals("clear upper sky excluded",0,p.house.get(600,100)[0],0);
-            assertEquals("mountain equipment uses local texture repair",2,p.repair.get((int)(960*.80),(int)(720*.51))[0],0);
-            assertEquals("right stub uses local texture repair",1,p.repair.get((int)(960*.647),(int)(720*.94))[0],0);
-        }finally{b.recycle();}
+    @Test public void emptySkyIsRejected(){Bitmap b=Bitmap.createBitmap(W,H,Bitmap.Config.ARGB_8888);b.eraseColor(Color.BLUE);try{FixedWindow.plan(b);fail("landmarks required");}catch(IllegalArgumentException expected){}finally{b.recycle();}}
+    @Test public void broadCloudBandsAreNotWires(){
+        Bitmap b=fixture(0);Canvas c=new Canvas(b);Paint p=new Paint();p.setColor(Color.LTGRAY);c.drawRect(0,0,W,650,p);p.setColor(Color.DKGRAY);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(42);
+        for(int k=0;k<3;k++){Path line=new Path();for(int x=0;x<W;x++){float y=(float)(FixedWindow.wireY(k,x/719.0)*H);if(x==0)line.moveTo(x,y);else line.lineTo(x,y);}c.drawPath(line,p);}
+        try{FixedWindow.plan(b);fail("wide cloud bands are not thin wires");}catch(IllegalArgumentException expected){}finally{b.recycle();}
     }
-    @Test public void leftRoofBoundaryIsNotErasedAndUnoccupiedMountainIsNotMasked(){
-        Bitmap b=fixture(0);Canvas c=new Canvas(b);Paint p=new Paint();p.setColor(Color.rgb(12,14,18));c.drawRect(0,806,210,960,p);
-        try(FixedWindow.Plan plan=FixedWindow.plan(b,true)){
-            assertEquals("roof edge does not become an erasure mask",0,plan.wire.get(806,70)[0],0);
-            assertEquals("roof edge keeps original pixels",0,plan.house.get(806,70)[0],0);
-            assertEquals("no broad mountain rectangle",0,plan.wire.get(768,370)[0],0);
-        }finally{b.recycle();}
-    }
-    @Test public void emptySkyIsRejected(){Bitmap b=Bitmap.createBitmap(720,960,Bitmap.Config.ARGB_8888);b.eraseColor(Color.BLUE);try{FixedWindow.plan(b);fail("must reject absent wires");}catch(IllegalArgumentException expected){}finally{b.recycle();}}
-    @Test public void largeShiftIsRejected(){Bitmap b=fixture(.09);try{FixedWindow.plan(b);fail("must reject large camera displacement");}catch(IllegalArgumentException expected){}finally{b.recycle();}}
-    @Test public void broadCloudBandsAreNotWires(){Bitmap b=Bitmap.createBitmap(720,960,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);c.drawColor(Color.LTGRAY);Paint p=new Paint();p.setColor(Color.DKGRAY);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(42);for(int k=0;k<3;k++){Path path=new Path();for(int x=0;x<720;x++){float y=(float)(FixedWindow.wireY(k,x/719.0)*960);if(x==0)path.moveTo(x,y);else path.lineTo(x,y);}c.drawPath(path,p);}try{FixedWindow.plan(b);fail("broad clouds must not be treated as thin wires");}catch(IllegalArgumentException expected){}finally{b.recycle();}}
-    @Test public void wrongAspectIsRejected(){Bitmap b=Bitmap.createBitmap(640,480,Bitmap.Config.ARGB_8888);try{FixedWindow.plan(b);fail("must reject different field of view");}catch(IllegalArgumentException expected){}finally{b.recycle();}}
 }

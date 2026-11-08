@@ -42,7 +42,7 @@ public final class LocalProcessor {
             Utils.bitmapToMat(source,rgba); Imgproc.cvtColor(rgba,rgb,Imgproc.COLOR_RGBA2RGB);
             if(Core.countNonZero(wire)>0) Photo.inpaint(rgb,wire,filled,3,Photo.INPAINT_TELEA); else rgb.copyTo(filled);
             if(Core.countNonZero(house)>0) {
-                double sigma=Math.max(2,h*.0065);int size=((int)Math.ceil(sigma*6))|1;
+                double sigma=Math.max(1.6,Math.min(w,h)/576.0*3.2);int size=((int)Math.ceil(sigma*6))|1;
                 // Normalized masked convolution: sky/tree colours cannot bleed into a roof edge.
                 Mat weight=new Mat(),weightBlur=new Mat(),rgbFloat=new Mat(),weighted=new Mat(),weightedBlur=new Mat();
                 java.util.List<Mat> channels=new java.util.ArrayList<>();

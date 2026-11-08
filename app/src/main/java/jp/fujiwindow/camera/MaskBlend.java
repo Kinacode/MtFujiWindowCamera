@@ -8,7 +8,7 @@ final class MaskBlend {
         Mat distance=new Mat();
         try{
             Imgproc.distanceTransform(wire,distance,Imgproc.DIST_L2,3);float[] d=new float[w*h];distance.get(0,0,d);
-            double width=Math.max(2,h*.0025);
+            double width=Math.max(1.5,Math.min(w,h)/576.0*1.5);
             for(int i=0;i<output.length;i++){
                 int alpha=(int)Math.min(255,Math.round(d[i]*255/width));
                 if(alpha==0){output[i]=source[i];continue;}if(alpha==255)continue;

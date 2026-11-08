@@ -7,6 +7,23 @@ import org.opencv.imgproc.Imgproc;
 import static org.junit.Assert.*;
 
 public class ConstrainedRepairTest {
+    @Test public void treeCableSamplesLeavesInsteadOfDistantSkyInNeuralMask(){
+        assertTrue(OpenCVLoader.initLocal());int w=240,h=180;
+        Bitmap source=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);source.eraseColor(Color.WHITE);
+        Canvas canvas=new Canvas(source);Paint paint=new Paint();paint.setColor(Color.rgb(25,45,30));canvas.drawRect(40,40,200,160,paint);
+        paint.setColor(Color.YELLOW);paint.setStrokeWidth(2);canvas.drawLine(120,65,120,130,paint);
+        int[] before=new int[w*h];source.getPixels(before,0,w,0,0,w,h);int[] output=before.clone();
+        Mat wire=Mat.zeros(h,w,CvType.CV_8UC1),repair=wire.clone();
+        try{
+            Imgproc.rectangle(wire,new org.opencv.core.Point(30,30),new org.opencv.core.Point(210,170),new Scalar(255),-1);
+            Imgproc.rectangle(repair,new org.opencv.core.Point(117,62),new org.opencv.core.Point(123,133),new Scalar(255),-1);
+            ConstrainedRepair.apply(source,output,wire,repair);
+            assertTrue("leaf colour, not surrounding white sky",Color.red(output[95*w+120])<55);
+            assertTrue(Color.green(output[95*w+120])<75);
+            assertEquals("unselected leaf preserved",before[95*w+100],output[95*w+100]);
+            int[] after=new int[w*h];source.getPixels(after,0,w,0,0,w,h);assertArrayEquals(before,after);
+        }finally{wire.release();repair.release();source.recycle();}
+    }
     @Test public void thinMountainPoleIsRepairedWithoutBroadHorizontalStripe(){
         assertTrue(OpenCVLoader.initLocal());int w=240,h=180;
         Bitmap source=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);int[] clean=new int[w*h];

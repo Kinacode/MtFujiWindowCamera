@@ -1,0 +1,11 @@
+LaMa ONNX model by Carve-Photos, derived from advimman/lama.
+License: Apache-2.0 (model repository declaration and original project license).
+Model repository: https://huggingface.co/Carve/LaMa-ONNX
+Pinned revision: c3c0c9e468934d62e79c329e35d82dd09ff8c444
+Asset: lama_fp32.onnx
+SHA-256: 1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6
+Original project: https://github.com/advimman/lama
+Export implementation: https://github.com/Carve-Photos/lama
+Input: float32 RGB NCHW 1x3x512x512 in [0,1], float32 mask 1x1x512x512 (1 = hole).
+Output: float32 RGB NCHW 1x3x512x512 in [0,255].
+No user photo is sent to the model host; download occurs at build time only.

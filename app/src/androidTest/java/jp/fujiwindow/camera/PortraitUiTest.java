@@ -41,7 +41,7 @@ public class PortraitUiTest {
         Bitmap b=new FixedWindowTest().fixture(.018);
         try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
             scenario.onActivity(a->{assertTrue(a.fixedWindow);a.original=b;a.photo.setImageBitmap(b);a.masks.regions.clear();a.calibrated=false;a.navigate(1);a.aligned.setChecked(true);a.process();});
-            final boolean[] done={false},ok={false};long deadline=android.os.SystemClock.uptimeMillis()+30000;
+            final boolean[] done={false},ok={false};long deadline=android.os.SystemClock.uptimeMillis()+150000;
             while(!done[0]&&android.os.SystemClock.uptimeMillis()<deadline){scenario.onActivity(a->{done[0]=!a.busy;ok[0]=a.result!=null&&a.masks.regions.isEmpty();});if(!done[0])android.os.SystemClock.sleep(100);}
             assertTrue("processing succeeds without drawing regions",done[0]&&ok[0]);
         }finally{b.recycle();}

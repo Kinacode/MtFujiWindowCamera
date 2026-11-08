@@ -24,6 +24,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: FujiWindowCamera-debug
+          retention-days: 3
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
   image-tests:
@@ -43,6 +44,7 @@ jobs:
         with:
           api-level: 29
           arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 4096
           script: |
             ./gradlew connectedDebugAndroidTest
             adb pull /sdcard/Pictures/FujiWindowCameraTest ui-screenshots
@@ -50,5 +52,6 @@ jobs:
         if: always()
         with:
           name: FujiWindowCamera-ui
+          retention-days: 7
           path: ui-screenshots
           if-no-files-found: warn
